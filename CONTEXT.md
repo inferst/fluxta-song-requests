@@ -171,7 +171,7 @@ _Avoid_: output, device (Spotify's word for an app it can play on).
 
 **Player Page**:
 The web page the plugin serves for YouTube's Player, opened in an OBS
-Browser Source. One plays at a time — the one opened last takes over — and
+Browser Source on the same computer. One plays at a time — the one opened last takes over — and
 none open means the Current Song waits, paused. It shows the player and
 nothing else, and it must be in view: YouTube does not allow a player that
 is not shown.
