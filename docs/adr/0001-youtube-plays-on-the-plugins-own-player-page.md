@@ -45,9 +45,13 @@ text source set from Song Started today.
   player. A key in a URL is what Fluxta ADR-0025 rejects for host grants; here
   it only guards a page whose address lives in OBS's settings, and the
   streamer can replace it.
+- YouTube refuses an embed (error 150) on a page whose host is an IP address,
+  whatever its `origin` or referrer, and plays it on a host name (spike #3).
+  The page's address is therefore `http://localhost:<port>/…`, served on both
+  loopbacks `localhost` may resolve to, never `127.0.0.1`.
 - It listens on loopback by default, on a fixed port the streamer can change,
   so the address in OBS stays the same. A setting opens it to the local
-  network for setups with OBS on a second computer; the key is required
-  either way.
+  network for setups with OBS on a second computer, addressed there by the
+  computer's name rather than its IP; the key is required either way.
 - In an ordinary browser, unlike OBS, the page needs one click before it may
   play with sound.

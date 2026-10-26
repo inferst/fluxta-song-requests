@@ -9,13 +9,17 @@ embedding, age restriction, Region, live — before Request Song returns. A key
 shipped with the plugin is not an option: the source is public, and every
 streamer would share one quota.
 
-Search words cost far more than a link (`search.list` is 100 units of the
-default 10,000 a day; `videos.list` is 1). A search asks for up to five
-embeddable videos and takes the first that passes every Rule, at the same
-cost as one. A search is cached for 7 days, so a Song asked for again costs
-only its check. The plugin keeps no count of its own: when YouTube answers
-that the quota is spent, every Request is refused as `quota-exhausted` until
-YouTube resets it at midnight Pacific time.
+Search words are the scarce part. `search.list` has a daily bucket of its
+own, 100 calls by default, while `videos.list` takes 1 of the 10,000 units a
+day that everything else shares (YouTube's quota page, October 2026). A
+search asks for up to five embeddable videos in one call and takes the first
+that passes Playability and every Rule; the embeddable filter lets
+age-restricted videos through (spike #3), so each candidate is still checked.
+A search is cached for 7 days, so a Song asked for again costs only its
+check. The plugin keeps no count of its own and follows YouTube's answer per
+bucket: when the searches are spent, Requests by words are refused as
+`quota-exhausted` while links are still checked; when the units are spent,
+every Request is — each until YouTube resets it at midnight Pacific time.
 
 ## Considered Options
 
@@ -24,6 +28,6 @@ YouTube resets it at midnight Pacific time.
   after the viewer was told it was accepted.
 - **Links without a key, search and full checks with one.** Two behaviours to
   explain and to test.
-- **Counting the quota and keeping a reserve for links.** The count drifts
-  whenever the key is used elsewhere, and the gain did not justify the extra
-  state; it can be added if spent quotas prove common.
+- **Counting the quota ourselves.** The count drifts whenever the key is used
+  elsewhere, and with searches in a bucket of their own they cannot starve
+  the link checks a reserve would have protected.

@@ -172,6 +172,7 @@ _Avoid_: token, password.
 
 **API Key**:
 The streamer's own YouTube Data API key, which every Request is checked
-with. Its daily quota is the streamer's: when YouTube says it is spent, every
-Request is refused as `quota-exhausted` until YouTube resets it.
+with. Its daily quotas are the streamer's — one for searches, one for
+everything else — and when YouTube says one is spent, the Requests that need
+it are refused as `quota-exhausted` until YouTube resets it.
 _Avoid_: token, credentials.
