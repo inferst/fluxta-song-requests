@@ -113,8 +113,9 @@ days. Recently played is checked against it.
 _Avoid_: log, played list.
 
 **Fallback Playlist**:
-A playlist of the streamer's that plays shuffled while the Song Queue is
-empty. Its tracks are not Songs: no Rules, no Events, no History. A Song
+A playlist of the streamer's whose playable tracks the plugin plays shuffled,
+one at a time, while the Song Queue is empty. Its tracks are not Songs:
+Playability applies to them, but no Rules, no Events, no History. A Song
 waits for the Fallback Track on air to end.
 _Avoid_: backup playlist, autoplay (YouTube's word for something else).
 

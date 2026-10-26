@@ -11,8 +11,14 @@ know no Provider.
 
 A Player never holds a queue: the plugin hands it the next Song only when the
 Current Song is over. That keeps Remove, Next and Skip exact on services whose
-own queue cannot be edited. The tests carry a fake second Provider, so that
-the Song Queue, the Rules and the Events are shown not to depend on YouTube.
+own queue cannot be edited. The Fallback Playlist goes the same way: the
+plugin reads the playlist, leaves out what is not playable, shuffles it and
+hands the Player one track at a time. Handed the playlist itself, YouTube's
+player kept its order through a shuffle and stuck on the first entry it could
+not play (spike #3); read by the plugin, it costs a unit per 50 tracks and
+brings every title and duration. The tests carry a fake second Provider, so
+that the Song Queue, the Rules and the Events are shown not to depend on
+YouTube.
 
 ## Spotify, when it comes
 
