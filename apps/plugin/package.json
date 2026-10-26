@@ -1,18 +1,24 @@
 {
   "dependencies": {
-    "@fluxta/sdk": "catalog:"
+    "@fluxta/sdk": "catalog:",
+    "song-requests-protocol": "workspace:*",
+    "ws": "catalog:"
   },
   "devDependencies": {
-    "song-requests-editor": "workspace:*",
     "@types/node": "catalog:",
+    "@types/ws": "catalog:",
+    "song-requests-editor": "workspace:*",
+    "song-requests-player": "workspace:*",
     "tsdown": "catalog:",
-    "typescript": "catalog:"
+    "typescript": "catalog:",
+    "vitest": "catalog:"
   },
   "name": "song-requests-plugin",
   "private": true,
   "scripts": {
     "build": "tsdown",
     "dev": "tsdown --watch",
+    "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
   "type": "module",

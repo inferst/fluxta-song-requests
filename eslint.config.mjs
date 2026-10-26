@@ -10,7 +10,7 @@ export default defineConfig([
   eslint.configs.recommended,
   tseslint.configs.recommended,
   {
-    files: ["apps/editor/**/*.{ts,tsx}"],
+    files: ["apps/editor/**/*.{ts,tsx}", "apps/player/**/*.ts"],
     languageOptions: {
       globals: globals.browser,
     },
