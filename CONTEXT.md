@@ -19,7 +19,9 @@ execution of a program.
 **Request**:
 What one Request Song step hands the plugin: text — a link or search words —
 and, optionally, a Requester and a Reference. It becomes a Song or a Refusal
-before the step returns, so an accepted Request is one that will play.
+before the step returns. With the API Key an accepted Request is one that will
+play; without it, what only the player can tell waits for the Song's Start
+Check.
 _Avoid_: order, song request (the plugin's name, not one item), ask.
 
 **Requester**:
@@ -43,14 +45,16 @@ _Avoid_: error (nothing failed), rejection, denial.
 **Playability**:
 Whether a Provider can play a track at all: it exists, may be embedded, has
 no age restriction, is available in the Region and is not a live stream or a
-premiere. A track that is not playable is refused whatever the step says.
+premiere. A track that is not playable is refused whatever the step says —
+or, when only the player can tell, dropped at its Start Check.
 _Avoid_: availability (one part of it), Rule (a Rule can be overridden).
 
 **Rule**:
 A check of the streamer's a Request must pass to become a Song — Requests
 Open, duration bounds, Songs waiting per Requester, queue size, already
 queued, recently played, Blocklist, music only. Each has a Default and may
-have an Override.
+have an Override. Without the API Key the duration bounds wait for the Start
+Check and music only is not checked.
 _Avoid_: filter, limit (one kind of Rule), policy.
 
 **Default**:
@@ -72,7 +76,8 @@ _Avoid_: enabled, paused (that is playback).
 **Blocklist**:
 The tracks and channels the streamer never wants played, kept in Plugin
 settings. A Request for one is refused as `blocked`; blocking a Song already
-queued drops it.
+queued drops it. A channel is known by its id with the API Key and by its
+address without it.
 _Avoid_: blacklist, ban list.
 
 **Region**:
@@ -107,6 +112,13 @@ The one Song on air, playing or paused, with how far it has played. It
 outlives a restart and goes on from that point.
 _Avoid_: now playing (the future widget's title), active song.
 
+**Start Check**:
+How a Song whose duration is not known yet — one accepted without the API
+Key — goes on air: it starts muted, and once the player tells its duration it
+is unmuted, or dropped as `too-long`, `too-short` or `unavailable` before
+anything of it is heard.
+_Avoid_: probe, preview.
+
 **History**:
 The Songs that left the air, newest first: at most 200, none older than 30
 days. Recently played is checked against it.
@@ -137,9 +149,10 @@ _Avoid_: song finished (one of three ways).
 
 **Song Dropped**:
 The Event of a Song leaving the Song Queue without ever going on air, with
-why: `removed`, `cleared`, `blocked` or `unavailable` (it was no longer
-playable when its turn came). The usual cue to refund.
-_Avoid_: song removed (one of four reasons), cancelled.
+why: `removed`, `cleared`, `blocked`, `unavailable` (it could not play when
+its turn came) or, at its Start Check, `too-long` or `too-short`. The usual
+cue to refund.
+_Avoid_: song removed (one of six reasons), cancelled.
 
 ### Providers and playback
 
@@ -172,8 +185,10 @@ open Player Page then stops.
 _Avoid_: token, password.
 
 **API Key**:
-The streamer's own YouTube Data API key, which every Request is checked
-with. Its daily quotas are the streamer's — one for searches, one for
-everything else — and when YouTube says one is spent, the Requests that need
-it are refused as `quota-exhausted` until YouTube resets it.
+The streamer's own YouTube Data API key, which the plugin works without. With
+it every Request is checked before it is accepted and search words work;
+without it — or while YouTube refuses it or its units are spent — links are
+checked through oEmbed and at their Start Check, and words are refused. Its
+daily quotas — one for searches, one for everything else — are the
+streamer's.
 _Avoid_: token, credentials.
