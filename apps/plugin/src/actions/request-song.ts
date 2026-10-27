@@ -13,6 +13,7 @@ export const REQUEST_SONG_ACTION = "request-song";
  * What a run gets back, by the keys the manifest's `produces` declares: the
  * accepted Song and its place, or the Refusal's reason — nothing else, the
  * same as producing no value, so a reply cannot quote a Song that is not.
+ * A duration or an `eta` that is not known is left out the same way.
  */
 type Produced = Record<string, string | number>;
 
@@ -47,7 +48,7 @@ export class RequestSongAction extends StandaloneAction<RequestSongSettings> {
       return { outcome: "refused", reason: answer.reason };
     }
 
-    const { song, position } = answer;
+    const { song, position, eta } = answer;
     return {
       outcome: "accepted",
       songId: song.id,
@@ -55,6 +56,8 @@ export class RequestSongAction extends StandaloneAction<RequestSongSettings> {
       channel: song.channel,
       url: song.url,
       position,
+      ...(song.duration === undefined ? {} : { duration: song.duration }),
+      ...(eta === undefined ? {} : { eta }),
     };
   };
 }

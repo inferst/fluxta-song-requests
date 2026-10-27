@@ -13,7 +13,7 @@ export function RequestSongEditor() {
         value={values.request ?? ""}
         onChange={set("request")}
         placeholder="https://youtu.be/…"
-        hint="A YouTube link — usually what a viewer typed after the command. Later steps can read whether it was accepted, the Song's title and its place in the queue."
+        hint="A YouTube link — usually what a viewer typed after the command. Later steps can read whether it was accepted, the Song's title and its place in the Song Queue, and — once they are known — how long it is and when it should start."
       />
     </EditorPage>
   );

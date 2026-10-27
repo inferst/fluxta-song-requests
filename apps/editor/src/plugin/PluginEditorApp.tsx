@@ -1,6 +1,7 @@
 import { EditorPage, PluginEditorLayout } from "@fluxta/sdk/ui";
 
 import { PlayerPageSection } from "./PlayerPageSection";
+import { SettingsSection } from "./SettingsSection";
 import { usePluginStatus } from "./usePluginStatus";
 
 export function PluginEditorApp() {
@@ -29,6 +30,12 @@ export function PluginEditorApp() {
           label: "Player",
           tone: status.playerConnected ? "ok" : "idle",
           content: <PlayerPageSection status={status} />,
+        },
+        {
+          id: "settings",
+          label: "Settings",
+          tone: status.apiKey.state === "refused" ? "error" : undefined,
+          content: <SettingsSection status={status} />,
         },
       ]}
     />

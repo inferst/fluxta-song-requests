@@ -16,6 +16,11 @@ export type Track = {
   channelUrl: string;
   /** A link to it a viewer can open. */
   url: string;
+  /**
+   * In seconds; unknown when its Provider could not tell it, until its Player
+   * does, at the Song's Start Check.
+   */
+  duration?: number;
 };
 
 /** A Request accepted into the Song Queue. */
@@ -26,7 +31,15 @@ export type Song = Track & {
 
 /** Why a Request did not become a Song. */
 export type RefusalReason =
-  "not-found" | "not-embeddable" | "no-api-key" | "provider-unavailable";
+  | "not-found"
+  | "not-embeddable"
+  | "age-restricted"
+  | "region-blocked"
+  | "live"
+  | "no-api-key"
+  | "api-key-invalid"
+  | "quota-exhausted"
+  | "provider-unavailable";
 
 export type Resolution =
   { kind: "track"; track: Track } | { kind: "refused"; reason: RefusalReason };
@@ -35,6 +48,11 @@ export type Resolution =
 export interface PlayerEvents {
   /** It can play now — a Player Page connected. */
   ready(): void;
+  /**
+   * The Song plays — muted, if it was played so — and is this long, in
+   * seconds; `undefined` for a live stream, which has no end.
+   */
+  loaded(songId: string, duration: number | undefined): void;
   /** The Song played to its end. */
   ended(songId: string): void;
   /** The Song could not be played, or broke while playing. */
@@ -45,8 +63,15 @@ export interface PlayerEvents {
 export interface Player {
   /** Whether a Song handed over now would play. */
   readonly ready: boolean;
-  /** Plays the Song in place of whatever was on. */
-  play(song: Song): void;
+  /**
+   * Plays the Song in place of whatever was on. A muted Song is not heard
+   * until `unmute` — its Start Check.
+   */
+  play(song: Song, options: { muted: boolean }): void;
+  /** Lets the Song on air be heard; a Song that is no longer on air stays as it is. */
+  unmute(songId: string): void;
+  /** Stops whatever is on; nothing plays until the next `play`. */
+  stop(): void;
   /** How the Song Queue hears from it. */
   attach(events: PlayerEvents): void;
 }

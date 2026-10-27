@@ -3,7 +3,8 @@ import { z } from "zod";
 /**
  * The messages between the sidecar and the Player Page, over the page's own
  * WebSocket. The page does only what the sidecar says — load a video and
- * play it — and reports how that went; the Song Queue lives in the sidecar.
+ * play it, unmute it, stop — and reports how that went; the Song Queue lives
+ * in the sidecar.
  *
  * Every message is an object with an `event` discriminant, like the editor
  * messages, and both sides check what arrives: it is JSON off a socket.
@@ -17,14 +18,29 @@ import { z } from "zod";
 export const REPLACED_CLOSE_CODE = 4000;
 
 const SidecarMessageSchema = z.discriminatedUnion("event", [
+  /** `muted` for a Song at its Start Check, which is not heard until `unmute`. */
   z.object({
     event: z.literal("load"),
     songId: z.string(),
     videoId: z.string(),
+    muted: z.boolean(),
   }),
+  z.object({ event: z.literal("unmute"), songId: z.string() }),
+  z.object({ event: z.literal("stop") }),
 ]);
 
 const PageMessageSchema = z.discriminatedUnion("event", [
+  /**
+   * The video plays, and the player knows it: `duration` is the player's
+   * own, in seconds, and `live` whether the video is a live stream — whose
+   * "duration" is only how long it has been on.
+   */
+  z.object({
+    event: z.literal("loaded"),
+    songId: z.string(),
+    duration: z.number(),
+    live: z.boolean(),
+  }),
   z.object({ event: z.literal("ended"), songId: z.string() }),
   /** `code` is the IFrame Player's error code — 150 for any refusal at load. */
   z.object({

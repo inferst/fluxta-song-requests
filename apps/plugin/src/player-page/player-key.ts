@@ -1,7 +1,6 @@
 import { randomBytes } from "node:crypto";
 
-/** Plugin settings as the sidecar keeps them; the Player Key among them. */
-export type PluginSettings = { playerKey?: string; [key: string]: unknown };
+import type { PluginSettings } from "../settings";
 
 /**
  * The Player Key: made once, on the first start, and kept in Plugin settings

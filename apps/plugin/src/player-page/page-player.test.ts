@@ -40,6 +40,7 @@ function listen(player: PagePlayer) {
   const heard: string[] = [];
   const events: PlayerEvents = {
     ready: () => heard.push("ready"),
+    loaded: (songId, duration) => heard.push(`loaded ${songId} ${duration}`),
     ended: (songId) => heard.push(`ended ${songId}`),
     failed: (songId) => heard.push(`failed ${songId}`),
   };
@@ -79,9 +80,9 @@ describe("the Player Page's Player", () => {
     const page = new FakeSocket();
     player.connect(page);
 
-    player.play(song);
+    player.play(song, { muted: false });
     expect(page.sent).toEqual([
-      { event: "load", songId: "song-1", videoId: "dQw4w9WgXcQ" },
+      { event: "load", songId: "song-1", videoId: "dQw4w9WgXcQ", muted: false },
     ]);
 
     page.says({ event: "ended", songId: "song-1" });
@@ -89,6 +90,50 @@ describe("the Player Page's Player", () => {
     page.says({ event: "ended" });
     page.says("not json");
     expect(heard).toEqual(["ready", "ended song-1", "failed song-2"]);
+  });
+
+  it("plays a Song muted for its Start Check, then unmutes or stops it", () => {
+    const player = new PagePlayer();
+    listen(player);
+    const page = new FakeSocket();
+    player.connect(page);
+
+    player.play(song, { muted: true });
+    player.unmute("song-1");
+    player.stop();
+
+    expect(page.sent).toEqual([
+      { event: "load", songId: "song-1", videoId: "dQw4w9WgXcQ", muted: true },
+      { event: "unmute", songId: "song-1" },
+      { event: "stop" },
+    ]);
+  });
+
+  it("passes on how long a Song is, in whole seconds, and none for a live stream", () => {
+    const player = new PagePlayer();
+    const heard = listen(player);
+    const page = new FakeSocket();
+    player.connect(page);
+
+    page.says({
+      event: "loaded",
+      songId: "song-1",
+      duration: 212.6,
+      live: false,
+    });
+    // The player gives a live stream's time on air as its duration.
+    page.says({
+      event: "loaded",
+      songId: "song-2",
+      duration: 5400,
+      live: true,
+    });
+
+    expect(heard).toEqual([
+      "ready",
+      "loaded song-1 213",
+      "loaded song-2 undefined",
+    ]);
   });
 
   it("is no longer ready once its page closes", () => {
@@ -115,7 +160,7 @@ describe("the Player Page's Player", () => {
     player.connect(before);
 
     player.connect(after);
-    player.play(song);
+    player.play(song, { muted: false });
     before.says({ event: "ended", songId: "song-1" });
 
     expect(before.closed).toBe(true);

@@ -27,10 +27,29 @@ declare namespace YT {
     };
   }
 
+  /**
+   * What `getVideoData()` gives — not in YouTube's reference, but the
+   * player's own description of the video it holds.
+   */
+  interface VideoData {
+    video_id?: string;
+    /** Whether the video is a live stream. */
+    isLive?: boolean;
+  }
+
   class Player {
     constructor(element: string | HTMLElement, options: PlayerOptions);
     loadVideoById(videoId: string): void;
     stopVideo(): void;
+    seekTo(seconds: number, allowSeekAhead: boolean): void;
+    mute(): void;
+    unMute(): void;
+    /**
+     * In seconds; 0 until the video's data has loaded. For a live stream, how
+     * long it has been on.
+     */
+    getDuration(): number;
+    getVideoData(): VideoData;
     destroy(): void;
   }
 }
