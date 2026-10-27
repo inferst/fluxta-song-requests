@@ -1,0 +1,65 @@
+{
+  "name": "song-requests",
+  "title": "Song Requests",
+  "description": "Viewers request songs; they play one at a time from YouTube on a player page in OBS",
+  "version": "0.1.0",
+  "author": "Mikhail Morozov",
+  "license": "MIT",
+  "homepage": "https://github.com/inferst/fluxta-song-requests",
+  "repository": "https://github.com/inferst/fluxta-song-requests",
+  "maintainers": ["inferst"],
+  "minAppVersion": "0.9.0",
+  "platforms": ["windows", "macos", "linux"],
+  "categories": ["music", "streaming"],
+  "apiVersion": 1,
+  "main": "index.mjs",
+  "icon": "icons/list-music.svg",
+  "editor": "editor/plugin.html",
+  "editorPlacement": "navigation",
+  "actions": [
+    {
+      "name": "Request Song",
+      "type": "request-song",
+      "icon": "icons/list-plus.svg",
+      "context": "standalone",
+      "editor": "editor/request-song.html",
+      "produces": [
+        {
+          "key": "outcome",
+          "name": "Outcome",
+          "type": "string"
+        },
+        {
+          "key": "reason",
+          "name": "Refusal Reason",
+          "type": "string"
+        },
+        {
+          "key": "songId",
+          "name": "Song ID",
+          "type": "string"
+        },
+        {
+          "key": "title",
+          "name": "Title",
+          "type": "string"
+        },
+        {
+          "key": "channel",
+          "name": "Channel",
+          "type": "string"
+        },
+        {
+          "key": "url",
+          "name": "Link",
+          "type": "string"
+        },
+        {
+          "key": "position",
+          "name": "Position",
+          "type": "number"
+        }
+      ]
+    }
+  ]
+}
