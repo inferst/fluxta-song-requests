@@ -2,8 +2,8 @@ import { Button, Field, Input } from "@fluxta/sdk/ui";
 import { useRef, useState, type ReactNode } from "react";
 
 /**
- * An address to copy, read-only. The editor's sandboxed frame cannot open a
- * page or a link, so an address is handed over this way.
+ * An address to copy, read-only — for one that goes into another app, as the
+ * Player Page's does into OBS.
  */
 export function CopyField({
   label,

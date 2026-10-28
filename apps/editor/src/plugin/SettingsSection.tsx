@@ -1,5 +1,6 @@
 import {
   Button,
+  ExternalLink,
   Section,
   SelectField,
   StatusBadge,
@@ -14,8 +15,6 @@ import {
   type EditorMessage,
   type PluginStatus,
 } from "song-requests-protocol";
-
-import { CopyField } from "./CopyField";
 
 const GETTING_STARTED =
   "https://developers.google.com/youtube/v3/getting-started";
@@ -119,7 +118,14 @@ export function SettingsSection({ status }: { status: PluginStatus }) {
               ? `${status.apiKey.masked} saved — type a new one to replace it`
               : "AIza…"
           }
-          hint="Your own key from a Google Cloud project with the YouTube Data API v3 enabled. Its daily quota is yours; YouTube resets it at midnight Pacific time."
+          hint={
+            <>
+              Your own key from a Google Cloud project with the YouTube Data API
+              v3 enabled. Its daily quota is yours; YouTube resets it at
+              midnight Pacific time.{" "}
+              <ExternalLink href={GETTING_STARTED}>How to get one</ExternalLink>
+            </>
+          }
         />
         <div className="flex gap-2">
           <Button
@@ -139,11 +145,6 @@ export function SettingsSection({ status }: { status: PluginStatus }) {
             </Button>
           ) : null}
         </div>
-        <CopyField
-          label="How to get one"
-          hint="Open this address in a browser."
-          value={GETTING_STARTED}
-        />
       </Section>
       <Section
         title="Region"
