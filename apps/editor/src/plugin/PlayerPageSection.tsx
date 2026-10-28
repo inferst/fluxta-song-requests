@@ -1,6 +1,7 @@
-import { Button, Field, Input, Section, StatusBadge } from "@fluxta/sdk/ui";
-import { useRef, useState } from "react";
+import { Section, StatusBadge } from "@fluxta/sdk/ui";
 import type { PluginStatus } from "song-requests-protocol";
+
+import { CopyField } from "./CopyField";
 
 /**
  * The Player Page's address, for an OBS Browser Source, and whether a page is
@@ -8,22 +9,6 @@ import type { PluginStatus } from "song-requests-protocol";
  * copied into OBS.
  */
 export function PlayerPageSection({ status }: { status: PluginStatus }) {
-  const input = useRef<HTMLInputElement>(null);
-  const [copied, setCopied] = useState(false);
-
-  async function copy() {
-    try {
-      await navigator.clipboard.writeText(status.playerUrl);
-    } catch {
-      // The editor's sandboxed frame may not be granted the clipboard; a
-      // selected field copies the old way.
-      input.current?.select();
-      document.execCommand("copy");
-    }
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  }
-
   return (
     <Section
       title="Player Page"
@@ -36,28 +21,11 @@ export function PlayerPageSection({ status }: { status: PluginStatus }) {
           <StatusBadge tone="idle">No Player Page open</StatusBadge>
         )}
       </div>
-      <Field
+      <CopyField
         label="Address"
         hint="Songs wait in the queue while no Player Page is open."
-      >
-        <div className="flex gap-2">
-          <Input
-            ref={input}
-            readOnly
-            value={status.playerUrl}
-            onFocus={(event) => event.currentTarget.select()}
-            aria-label="Player Page address"
-          />
-          <Button
-            type="button"
-            variant="secondary"
-            disabled={!status.playerUrl}
-            onClick={copy}
-          >
-            {copied ? "Copied" : "Copy"}
-          </Button>
-        </div>
-      </Field>
+        value={status.playerUrl}
+      />
     </Section>
   );
 }

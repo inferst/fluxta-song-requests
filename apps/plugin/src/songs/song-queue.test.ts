@@ -1,16 +1,30 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Player, PlayerEvents, Provider, Song } from "./provider";
-import { SongQueue } from "./song-queue";
+import { SongQueue, type RequestAnswer } from "./song-queue";
 
-/** A Player whose page the test connects and whose Songs it ends. */
+/** A Player whose page the test connects and whose Songs it loads and ends. */
 class FakePlayer implements Player {
   ready = false;
+  /** The titles of the Songs it was told to play. */
   readonly played: string[] = [];
+  /** Everything it was told, in order: `play one`, `play one muted`, `unmute one`, `stop`. */
+  readonly told: string[] = [];
+  readonly #titles = new Map<string, string>();
   #events?: PlayerEvents;
 
-  play(song: Song) {
+  play(song: Song, { muted }: { muted: boolean }) {
     this.played.push(song.title);
+    this.told.push(`play ${song.title}${muted ? " muted" : ""}`);
+    this.#titles.set(song.id, song.title);
+  }
+
+  unmute(songId: string) {
+    this.told.push(`unmute ${this.#titles.get(songId)}`);
+  }
+
+  stop() {
+    this.told.push("stop");
   }
 
   attach(events: PlayerEvents) {
@@ -20,6 +34,11 @@ class FakePlayer implements Player {
   connect() {
     this.ready = true;
     this.#events?.ready();
+  }
+
+  /** The Song plays, and is this long — `undefined` for a live stream. */
+  load(song: Song, duration: number | undefined) {
+    this.#events?.loaded(song.id, duration);
   }
 
   end(song: Song) {
@@ -32,9 +51,11 @@ class FakePlayer implements Player {
 }
 
 /**
- * A Provider that knows nothing of YouTube: it claims `<id>:<title>`,
- * refuses `<id>:refuse` as not found, and takes anything else whole as the
- * title — the way a default Provider answers search words.
+ * A Provider that knows nothing of YouTube: it claims `<id>:<title>`, with
+ * `@<seconds>` after the title when it knows the track's duration — without,
+ * the Song has its Start Check. It refuses `<id>:refuse` as not found, and
+ * takes anything else whole as the title — the way a default Provider
+ * answers search words.
  */
 function fakeProvider(id: string, player = new FakePlayer()) {
   const provider: Provider = {
@@ -43,9 +64,10 @@ function fakeProvider(id: string, player = new FakePlayer()) {
     claims: (request) => request.startsWith(`${id}:`),
     async resolve(request) {
       const prefix = `${id}:`;
-      const title = request.startsWith(prefix)
+      const text = request.startsWith(prefix)
         ? request.slice(prefix.length)
         : request;
+      const [title, seconds] = text.split("@");
       if (title === "refuse") return { kind: "refused", reason: "not-found" };
       return {
         kind: "track",
@@ -56,11 +78,17 @@ function fakeProvider(id: string, player = new FakePlayer()) {
           channel: `${id} channel`,
           channelUrl: `${id}://channel`,
           url: `${id}://${title}`,
+          duration: seconds === undefined ? undefined : Number(seconds),
         },
       };
     },
   };
   return { provider, player };
+}
+
+function songOf(answer: RequestAnswer): Song {
+  if (answer.kind !== "accepted") throw new Error(`refused: ${answer.reason}`);
+  return answer.song;
 }
 
 function songQueue(...providers: Provider[]) {
@@ -197,5 +225,202 @@ describe("the Song Queue", () => {
       player.end(first.song);
     }
     expect(player.played).toEqual(["one", "two"]);
+  });
+});
+
+describe("the Start Check", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("is not needed by a Song whose duration is known", async () => {
+    const { provider, player } = fakeProvider("fake");
+    const queue = songQueue(provider);
+    player.connect();
+
+    await queue.request("fake:one@200");
+
+    expect(player.told).toEqual(["play one"]);
+  });
+
+  it("starts a Song of unknown duration muted, and lets it be heard once its Player tells it", async () => {
+    const { provider, player } = fakeProvider("fake");
+    const queue = songQueue(provider);
+    player.connect();
+    const one = songOf(await queue.request("fake:one"));
+
+    expect(player.told).toEqual(["play one muted"]);
+
+    player.load(one, 200);
+    expect(player.told).toEqual(["play one muted", "unmute one"]);
+  });
+
+  it("drops a live stream unheard, and plays the next Song", async () => {
+    const { provider, player } = fakeProvider("fake");
+    const queue = songQueue(provider);
+    player.connect();
+    const live = songOf(await queue.request("fake:live"));
+    await queue.request("fake:two@100");
+
+    player.load(live, undefined);
+
+    expect(player.told).not.toContain("unmute live");
+    expect(player.played).toEqual(["live", "two"]);
+    expect(player.told.at(-1)).toBe("play two");
+  });
+
+  it("stops a dropped Song when no Song follows it", async () => {
+    const { provider, player } = fakeProvider("fake");
+    const queue = songQueue(provider);
+    player.connect();
+    const live = songOf(await queue.request("fake:live"));
+
+    player.load(live, undefined);
+
+    expect(player.told).toEqual(["play live muted", "stop"]);
+  });
+
+  it("waits for its Player to tell the duration, however long that takes", async () => {
+    const { provider, player } = fakeProvider("fake");
+    const queue = songQueue(provider);
+    player.connect();
+    const one = songOf(await queue.request("fake:one"));
+    await queue.request("fake:two@100");
+
+    // A network drop leaves the player buffering, with no error (spike #3).
+    vi.advanceTimersByTime(10 * 60_000);
+    expect(player.told).toEqual(["play one muted"]);
+
+    player.load(one, 200);
+    expect(player.told).toEqual(["play one muted", "unmute one"]);
+  });
+
+  it("plays a Song that passed its Start Check as it is when its Player comes back", async () => {
+    const { provider, player } = fakeProvider("fake");
+    const queue = songQueue(provider);
+    player.connect();
+    const one = songOf(await queue.request("fake:one"));
+    player.load(one, 200);
+
+    player.ready = false;
+    player.connect();
+
+    expect(player.told.at(-1)).toBe("play one");
+  });
+
+  it("drops a Song its Player refuses at load, and plays the next", async () => {
+    const { provider, player } = fakeProvider("fake");
+    const queue = songQueue(provider);
+    player.connect();
+    const one = songOf(await queue.request("fake:one"));
+    await queue.request("fake:two@100");
+
+    player.fail(one);
+
+    expect(player.told).toEqual(["play one muted", "play two"]);
+  });
+
+  it("ignores what a Player says of a Song no longer on air", async () => {
+    const { provider, player } = fakeProvider("fake");
+    const queue = songQueue(provider);
+    player.connect();
+    const one = songOf(await queue.request("fake:one"));
+    await queue.request("fake:two");
+    player.fail(one);
+
+    player.load(one, 200);
+    player.load(one, undefined);
+
+    expect(player.told).toEqual(["play one muted", "play two muted"]);
+  });
+});
+
+describe("how long until a Song should start", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("is what is left of the Current Song and every Song ahead", async () => {
+    const { provider, player } = fakeProvider("fake");
+    const queue = songQueue(provider);
+    player.connect();
+    const one = await queue.request("fake:one@200");
+    expect(one).toMatchObject({ position: 0, eta: 0 });
+
+    expect(await queue.request("fake:two@100")).toMatchObject({ eta: 200 });
+
+    player.load(songOf(one), 200);
+    vi.advanceTimersByTime(50_000);
+    expect(await queue.request("fake:three@60")).toMatchObject({ eta: 250 });
+  });
+
+  it("counts Songs waiting for their Player in full", async () => {
+    const { provider } = fakeProvider("fake");
+    const queue = songQueue(provider);
+
+    expect(await queue.request("fake:one@200")).toMatchObject({
+      position: 1,
+      eta: 0,
+    });
+    vi.advanceTimersByTime(50_000);
+    expect(await queue.request("fake:two@100")).toMatchObject({ eta: 200 });
+  });
+
+  it("counts the Current Song in full while its Player is away, since it plays again from its start", async () => {
+    const { provider, player } = fakeProvider("fake");
+    const queue = songQueue(provider);
+    player.connect();
+    const one = songOf(await queue.request("fake:one@200"));
+    player.load(one, 200);
+    vi.advanceTimersByTime(50_000);
+
+    player.ready = false;
+    vi.advanceTimersByTime(60_000);
+
+    expect(await queue.request("fake:two@100")).toMatchObject({ eta: 200 });
+  });
+
+  it("counts a duration learned at the Start Check", async () => {
+    const { provider, player } = fakeProvider("fake");
+    const queue = songQueue(provider);
+    player.connect();
+    const one = songOf(await queue.request("fake:one"));
+    player.load(one, 180);
+    vi.advanceTimersByTime(30_000);
+
+    expect(await queue.request("fake:two@60")).toMatchObject({ eta: 150 });
+  });
+
+  it("is not known while a duration it needs is not", async () => {
+    const { provider } = fakeProvider("fake");
+    const queue = songQueue(provider);
+
+    await queue.request("fake:one@100");
+    const unknown = await queue.request("fake:unknown");
+    const after = await queue.request("fake:after@60");
+
+    // Its own duration is not needed to know when a Song should start.
+    expect(unknown).toMatchObject({ eta: 100 });
+    expect(after.kind === "accepted" && after.eta).toBe(undefined);
+  });
+
+  it("is not known while the Current Song's duration is not", async () => {
+    const { provider, player } = fakeProvider("fake");
+    const queue = songQueue(provider);
+    player.connect();
+    await queue.request("fake:one");
+
+    const two = await queue.request("fake:two@60");
+
+    expect(two).toMatchObject({ position: 1 });
+    expect(two.kind === "accepted" && two.eta).toBe(undefined);
   });
 });

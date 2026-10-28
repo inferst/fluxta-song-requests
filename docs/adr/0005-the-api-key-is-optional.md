@@ -21,7 +21,10 @@ duration it is either unmuted and goes on air — Song Started — or dropped:
 `too-long`, `too-short`, or `unavailable` for an age-restricted,
 region-blocked or live one, all of which the player refuses alike (error 150).
 Nothing of a dropped Song is heard, and Song Dropped carries its Reference, so
-a scenario can refund it. Music only, which needs YouTube's category, is not
+a scenario can refund it. A live stream need not be refused at load: the
+player may play it, and its `getDuration()` is how long it has been on, not
+its length. The page tells one by `getVideoData().isLive`, or by a duration
+that grows while the muted Song is watched for a moment. Music only, which needs YouTube's category, is not
 checked, and a blocked channel is matched by the address oEmbed gives rather
 than by its id. A Song whose duration is already known needs no Start Check.
 

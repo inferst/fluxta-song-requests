@@ -59,8 +59,21 @@ export class PagePlayer implements Player {
     this.#events?.ready();
   }
 
-  play(song: Song): void {
-    this.#send({ event: "load", songId: song.id, videoId: song.trackId });
+  play(song: Song, { muted }: { muted: boolean }): void {
+    this.#send({
+      event: "load",
+      songId: song.id,
+      videoId: song.trackId,
+      muted,
+    });
+  }
+
+  unmute(songId: string): void {
+    this.#send({ event: "unmute", songId });
+  }
+
+  stop(): void {
+    this.#send({ event: "stop" });
   }
 
   #send(message: SidecarMessage): void {
@@ -72,6 +85,14 @@ export class PagePlayer implements Player {
     if (!message) return;
 
     switch (message.event) {
+      case "loaded":
+        // A live stream's duration is how long it has been on, not its
+        // length: it has none.
+        this.#events?.loaded(
+          message.songId,
+          message.live ? undefined : Math.round(message.duration),
+        );
+        return;
       case "ended":
         this.#events?.ended(message.songId);
         return;

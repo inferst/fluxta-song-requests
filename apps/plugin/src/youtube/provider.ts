@@ -1,47 +1,29 @@
-import type {
-  Player,
-  Provider,
-  RefusalReason,
-  Resolution,
-} from "../songs/provider";
+import type { Player, Provider, Resolution } from "../songs/provider";
+import type { DataApi } from "./data-api";
+import type { Fetch } from "./fetch";
 import { videoIdOf } from "./link";
+import { checkWithOEmbed } from "./oembed";
+import { resolveVideo } from "./playability";
 
 /**
- * Fluxta waits about 30 s for an Action to answer; oEmbed gets well under it.
- */
-const OEMBED_TIMEOUT_MS = 10_000;
-
-type Fetch = (
-  input: string | URL | Request,
-  init?: RequestInit,
-) => Promise<Response>;
-
-type OEmbed = { title?: unknown; author_name?: unknown; author_url?: unknown };
-
-/**
- * What oEmbed's refusals mean (spike #3): 400 for a missing video, 401 for
- * one that may not be embedded. Anything else is YouTube not answering.
- */
-function refusalFor(status: number): RefusalReason {
-  if (status === 400 || status === 404) return "not-found";
-  if (status === 401 || status === 403) return "not-embeddable";
-  return "provider-unavailable";
-}
-
-const watchUrl = (id: string) => `https://www.youtube.com/watch?v=${id}`;
-
-/**
- * YouTube, checked without the API Key: a link through oEmbed, which knows a
- * missing and a non-embeddable video but neither duration nor age
- * restriction — those wait for the player (ADR-0005). Search words need the
- * API Key, so they are refused.
+ * YouTube (ADR-0005). With a usable API Key a link is checked through
+ * `videos.list` — Playability and duration — before the Request is answered,
+ * so an accepted one will play. Without one — none set, a key YouTube
+ * refuses, its units spent — or while the Data API does not answer, a link
+ * is checked through oEmbed and what only the player can tell waits for the
+ * Song's Start Check.
  */
 export function createYouTubeProvider({
   fetch,
   player,
+  dataApi,
+  region,
 }: {
   fetch: Fetch;
   player: Player;
+  dataApi: DataApi;
+  /** The Region Playability is checked for, as it stands now. */
+  region: () => string;
 }): Provider {
   return {
     id: "youtube",
@@ -52,41 +34,22 @@ export function createYouTubeProvider({
       const id = videoIdOf(request);
 
       if (!id) {
-        return { kind: "refused", reason: "no-api-key" };
+        // Search words need a usable API Key; search itself is still to
+        // come (#9), and until then finds nothing.
+        return { kind: "refused", reason: dataApi.unusable() ?? "not-found" };
       }
 
-      const url = new URL("https://www.youtube.com/oembed");
-      url.searchParams.set("format", "json");
-      url.searchParams.set("url", watchUrl(id));
+      const answer = await dataApi.videos([id]);
 
-      let body: OEmbed;
-
-      try {
-        const response = await fetch(url, {
-          signal: AbortSignal.timeout(OEMBED_TIMEOUT_MS),
-        });
-
-        if (!response.ok) {
-          return { kind: "refused", reason: refusalFor(response.status) };
-        }
-
-        body = (await response.json()) as OEmbed;
-      } catch {
-        return { kind: "refused", reason: "provider-unavailable" };
+      if (answer.kind === "videos") {
+        return resolveVideo(
+          id,
+          answer.videos.find((video) => video.id === id),
+          region(),
+        );
       }
 
-      return {
-        kind: "track",
-        track: {
-          provider: "youtube",
-          trackId: id,
-          title: typeof body.title === "string" ? body.title : "",
-          channel: typeof body.author_name === "string" ? body.author_name : "",
-          channelUrl:
-            typeof body.author_url === "string" ? body.author_url : "",
-          url: watchUrl(id),
-        },
-      };
+      return checkWithOEmbed(fetch, id);
     },
   };
 }

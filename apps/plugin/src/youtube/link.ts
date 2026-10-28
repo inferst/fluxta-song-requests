@@ -48,3 +48,6 @@ export function videoIdOf(request: string): string | undefined {
 
   return id && VIDEO_ID.test(id) ? id : undefined;
 }
+
+/** The address of a video a viewer can open. */
+export const watchUrl = (id: string) => `https://www.youtube.com/watch?v=${id}`;

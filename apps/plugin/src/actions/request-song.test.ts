@@ -6,9 +6,18 @@ import type { Player, Provider } from "../songs/provider";
 import { SongQueue } from "../songs/song-queue";
 import { RequestSongAction } from "./request-song";
 
-const idlePlayer: Player = { ready: false, play: () => {}, attach: () => {} };
+const idlePlayer: Player = {
+  ready: false,
+  play: () => {},
+  unmute: () => {},
+  stop: () => {},
+  attach: () => {},
+};
 
-/** Claims `fake:<title>`, refuses `fake:refuse`, and records what it was asked. */
+/**
+ * Claims `fake:<title>`, with `@<seconds>` after the title when it knows the
+ * track's duration; refuses `fake:refuse`, and records what it was asked.
+ */
 function fakeProvider() {
   const asked: string[] = [];
   const provider: Provider = {
@@ -17,7 +26,7 @@ function fakeProvider() {
     claims: (request) => request.startsWith("fake:"),
     async resolve(request) {
       asked.push(request);
-      const title = request.slice("fake:".length);
+      const [title, seconds] = request.slice("fake:".length).split("@");
       if (title === "refuse") return { kind: "refused", reason: "not-found" };
       return {
         kind: "track",
@@ -28,6 +37,7 @@ function fakeProvider() {
           channel: "Some Channel",
           channelUrl: "fake://channel",
           url: `fake://${title}`,
+          duration: seconds === undefined ? undefined : Number(seconds),
         },
       };
     },
@@ -65,6 +75,22 @@ describe("Request Song", () => {
       channel: "Some Channel",
       url: "fake://second",
       position: 2,
+    });
+  });
+
+  it("produces the Song's duration and when it should start, once they are known", async () => {
+    const { run } = requestSong();
+    await run({ request: "fake:first@200" });
+
+    expect(await run({ request: "fake:second@100" })).toEqual({
+      outcome: "accepted",
+      songId: "song-2",
+      title: "second",
+      channel: "Some Channel",
+      url: "fake://second",
+      position: 2,
+      duration: 100,
+      eta: 200,
     });
   });
 

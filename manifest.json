@@ -58,6 +58,16 @@
           "key": "position",
           "name": "Position",
           "type": "number"
+        },
+        {
+          "key": "duration",
+          "name": "Duration (Seconds)",
+          "type": "number"
+        },
+        {
+          "key": "eta",
+          "name": "Starts In (Seconds)",
+          "type": "number"
         }
       ]
     }

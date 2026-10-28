@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { ensurePlayerKey, type PluginSettings } from "./player-key";
+import type { PluginSettings } from "../settings";
+import { ensurePlayerKey } from "./player-key";
 
 function settingsStore() {
   const saved: PluginSettings[] = [];
