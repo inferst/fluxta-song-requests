@@ -34,6 +34,7 @@ describe("the editors' messages", () => {
       playerConnected: true,
       apiKey: { state: "spent", masked: "••••ijkl", resetsAt: 1793257200000 },
       region: { chosen: null, system: "US" },
+      stateFile: { recovered: false },
     };
 
     expect(isPluginMessage({ event: "status", status })).toBe(true);

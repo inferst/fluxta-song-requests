@@ -13,9 +13,11 @@ class FakePlayer implements Player {
   readonly #titles = new Map<string, string>();
   #events?: PlayerEvents;
 
-  play(song: Song, { muted }: { muted: boolean }) {
+  play(song: Song, { muted, startAt }: { muted: boolean; startAt?: number }) {
     this.played.push(song.title);
-    this.told.push(`play ${song.title}${muted ? " muted" : ""}`);
+    this.told.push(
+      `play ${song.title}${muted ? " muted" : ""}${startAt !== undefined ? ` at ${startAt}` : ""}`,
+    );
     this.#titles.set(song.id, song.title);
   }
 
@@ -477,6 +479,170 @@ describe("the Start Check", () => {
     player.load(one, undefined);
 
     expect(player.told).toEqual(["play one muted", "play two muted"]);
+  });
+});
+
+describe("the State file's snapshot", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("keeps the waiting Songs and the Current Song with how far it has played", async () => {
+    const { provider, player } = fakeProvider("fake");
+    const queue = songQueue(provider);
+    player.connect();
+    const one = songOf(await queue.request("fake:one@200"));
+    await queue.request("fake:two@100");
+    player.load(one, 200);
+
+    vi.advanceTimersByTime(42_000);
+
+    expect(queue.snapshot()).toEqual({
+      waiting: [expect.objectContaining({ id: "song-2", title: "two" })],
+      current: {
+        song: expect.objectContaining({ id: "song-1", title: "one" }),
+        atStartCheck: false,
+        started: true,
+        position: 42,
+      },
+    });
+  });
+
+  it("answers changes with the State file in mind", async () => {
+    const { provider, player } = fakeProvider("fake");
+    const changes: string[] = [];
+    let next = 0;
+    const queue = new SongQueue({
+      providers: [provider],
+      newId: () => `song-${++next}`,
+      onChange: () => changes.push("changed"),
+    });
+    player.connect();
+
+    const one = songOf(await queue.request("fake:one@200"));
+    player.load(one, 200);
+    player.end(one);
+
+    expect(changes).toEqual(["changed", "changed", "changed"]);
+  });
+
+  it("brings the Song Queue back as it was", async () => {
+    const { provider, player } = fakeProvider("fake");
+    const queue = songQueue(provider);
+    player.connect();
+    const one = songOf(await queue.request("fake:one@200"));
+    await queue.request("fake:two@100");
+    await queue.request("fake:three@50");
+
+    const snapshot = queue.snapshot();
+    const back = new SongQueue({
+      providers: [provider],
+      newId: () => "song-restored",
+      initial: snapshot,
+    });
+    expect(back.snapshot()).toEqual(snapshot);
+
+    // The restored queue answers from where the old one stopped: one on air
+    // again once its Player is ready, two and three still waiting behind it.
+    player.connect();
+    expect(player.told.at(-1)).toBe("play one");
+    expect(await back.request("fake:four")).toMatchObject({ position: 3 });
+
+    player.load(one, 200);
+    player.end(one);
+    expect(player.played).toEqual(["one", "one", "two"]);
+  });
+
+  it("resumes the Current Song at its saved position without a second Song Started", async () => {
+    const { provider, player } = fakeProvider("fake");
+    let next = 0;
+    const heard: string[] = [];
+    const queue = new SongQueue({
+      providers: [provider],
+      newId: () => `song-${++next}`,
+      onStarted: (song) => heard.push(`started ${song.title}`),
+    });
+    player.connect();
+    const one = songOf(await queue.request("fake:one@200"));
+    player.load(one, 200);
+
+    vi.advanceTimersByTime(30_000);
+    const snapshot = queue.snapshot();
+    expect(snapshot.current?.position).toBe(30);
+
+    // A restart: a new queue from the State file, a new set of Events.
+    new SongQueue({
+      providers: [provider],
+      newId: () => `song-${++next}`,
+      initial: snapshot,
+      onStarted: (song) => heard.push(`started ${song.title}`),
+    });
+    player.connect();
+
+    expect(player.told.at(-1)).toBe("play one at 30");
+    expect(heard).toEqual(["started one"]);
+
+    player.load(one, 200);
+    vi.advanceTimersByTime(10_000);
+    player.end(one);
+
+    expect(heard).toEqual(["started one"]);
+  });
+
+  it("plays a restored Song that never passed its Start Check muted, from its start", async () => {
+    const { provider, player } = fakeProvider("fake");
+    let next = 0;
+    const heard: string[] = [];
+    const queue = new SongQueue({
+      providers: [provider],
+      newId: () => `song-${++next}`,
+      onStarted: (song) => heard.push(`started ${song.title}`),
+    });
+    player.connect();
+    const one = songOf(await queue.request("fake:one"));
+
+    const snapshot = queue.snapshot();
+    new SongQueue({
+      providers: [provider],
+      newId: () => `song-${++next}`,
+      initial: snapshot,
+      onStarted: (song) => heard.push(`started ${song.title}`),
+    });
+    player.connect();
+
+    expect(player.told.at(-1)).toBe("play one muted");
+    expect(heard).toEqual([]);
+
+    player.load(one, 180);
+    expect(player.told.at(-2)).toBe("play one muted");
+    expect(player.told.at(-1)).toBe("unmute one");
+    expect(heard).toEqual(["started one"]);
+  });
+
+  it("does not grow a restored Song's position while its Player is away", async () => {
+    const { provider, player } = fakeProvider("fake");
+    const queue = songQueue(provider);
+    player.connect();
+    const one = songOf(await queue.request("fake:one@200"));
+    player.load(one, 200);
+
+    vi.advanceTimersByTime(30_000);
+    const snapshot = queue.snapshot();
+
+    // The Player Page is still closed after the restart: time passes, but
+    // nothing of the Song plays, so a save would not move its position on.
+    const back = new SongQueue({
+      providers: [provider],
+      newId: () => "song-restore",
+      initial: snapshot,
+    });
+    vi.advanceTimersByTime(60_000);
+
+    expect(back.snapshot().current?.position).toBe(30);
   });
 });
 

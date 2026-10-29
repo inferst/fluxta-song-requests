@@ -18,12 +18,17 @@ import { z } from "zod";
 export const REPLACED_CLOSE_CODE = 4000;
 
 const SidecarMessageSchema = z.discriminatedUnion("event", [
-  /** `muted` for a Song at its Start Check, which is not heard until `unmute`. */
+  /**
+   * `muted` for a Song at its Start Check, which is not heard until `unmute`.
+   * `startAt` is seconds in to start at: the Current Song goes on from where a
+   * restart found it, without a second Song Started (ADR-0002).
+   */
   z.object({
     event: z.literal("load"),
     songId: z.string(),
     videoId: z.string(),
     muted: z.boolean(),
+    startAt: z.number(),
   }),
   z.object({ event: z.literal("unmute"), songId: z.string() }),
   z.object({ event: z.literal("stop") }),

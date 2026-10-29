@@ -66,6 +66,7 @@ Editor-only and Player Page-only rebuilds restart nothing — reopen the editor 
 index.ts            composition root: the YouTube Provider on the Player Page's Player, the Song Queue, the Action, editor messages, Plugin settings (the Player Key, the API Key, the Region), the Player Page's server
 plugin.ts           the single `Plugin` instance from @fluxta/sdk/api
 settings.ts         Plugin settings as the sidecar keeps them; it is their only writer
+state-file.ts       the State file (ADR-0002): the Song Queue in one JSON file of the plugin's own in the OS's per-user application data folder, written atomically, read back on start
 songs/
   provider.ts       the Provider seam (ADR-0003): Track, Song, Refusal reasons, Player and its events
   song-queue.ts     the Song Queue: routes a Request to the Provider that claims it, keeps the order, hands each Provider's Player one Song at a time, runs the Start Check, answers `eta`
@@ -110,7 +111,7 @@ A Request travels `actions/request-song.ts` → `SongQueue.request` → the Prov
 - **Run Variables** ([guide](https://fluxta.app/docs/plugins/guides/run-variables)): a setting edited through a `TemplateField` arrives with its references substituted and may hold a number or a boolean. Read it through `templatedText` (`actions/templated.ts`), never as a bare string.
 - **The sidecar bundle is self-contained.** Fluxta runs it with a bundled Node and no `node_modules`, so tsdown inlines every non-builtin dependency (`noExternal`). Do not externalize one.
 - **File naming**: the sidecar, the Player Page and `song-requests-protocol` use kebab-case (`song-queue.ts`, `page-player.ts`). In the editors, React components are PascalCase (`PlayerPageSection.tsx`), hooks are `useThing.ts`.
-- **Tests**: vitest, colocated `*.test.ts`, at these seams: the link parser; the Data API client against a fake `fetch` and vitest's fake clock; the Region of a locale; the YouTube Provider against a fake `fetch`; the Song Queue with fake Providers and Players, `eta` on the fake clock; the Player Page's Player against a fake socket; the Player Page's server on a real loopback port; each Action through a real Song Queue; the protocol's message checks. No test reaches YouTube. The Player Page's browser script and the editors have no tests; OBS checks the page.
+- **Tests**: vitest, colocated `*.test.ts`, at these seams: the link parser; the Data API client against a fake `fetch` and vitest's fake clock; the Region of a locale; the YouTube Provider against a fake `fetch`; the Song Queue with fake Providers and Players, `eta` on the fake clock; the State file's round trip and its recovery from a broken file, in a temporary folder; the Player Page's Player against a fake socket; the Player Page's server on a real loopback port; each Action through a real Song Queue; the protocol's message checks. No test reaches YouTube. The Player Page's browser script and the editors have no tests; OBS checks the page.
 - **Comments say why** — the YouTube or Fluxta behaviour that forces the code — and use the capitalized terms of `CONTEXT.md` and Fluxta's [Terminology](https://fluxta.app/docs/plugins/getting-started/terminology).
 
 ## Working against Fluxta

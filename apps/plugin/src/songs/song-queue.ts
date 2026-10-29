@@ -34,6 +34,26 @@ type CurrentSong = {
   started: boolean;
   /** When it began to play, by `Date.now()`; unset until its Player says so. */
   since?: number;
+  /** How far it has played, in seconds, as of `since`. */
+  position: number;
+  /**
+   * Seconds in to resume at once its Player is ready — saved by the State
+   * file for the Current Song of a restarted plugin (ADR-0002).
+   */
+  resumeAt?: number;
+};
+
+/** The Song Queue as the State file keeps it (ADR-0002). */
+export type SongQueueSnapshot = {
+  waiting: Song[];
+  current?: {
+    song: Song;
+    atStartCheck: boolean;
+    /** It has been heard: coming back, it goes on without a second Song Started. */
+    started: boolean;
+    /** How far it has played, in seconds. */
+    position: number;
+  };
 };
 
 /**
@@ -60,28 +80,51 @@ export class SongQueue {
   readonly #onStarted?: (song: Song) => void;
   readonly #onEnded?: (song: Song, how: "finished" | "failed") => void;
   readonly #onDropped?: (song: Song, why: "unavailable") => void;
+  readonly #onChange?: () => void;
   readonly #waiting: Song[] = [];
   #current?: CurrentSong;
 
   constructor({
     providers,
     newId,
+    initial,
     onStarted,
     onEnded,
     onDropped,
+    onChange,
   }: {
     /** The first is the default one, which answers search words. */
     providers: Provider[];
     newId: () => string;
+    /** What the State file saved: the queue comes back as it was (ADR-0002). */
+    initial?: SongQueueSnapshot;
     onStarted?: (song: Song) => void;
     onEnded?: (song: Song, how: "finished" | "failed") => void;
     onDropped?: (song: Song, why: "unavailable") => void;
+    /** The queue changed in a way the State file should keep. */
+    onChange?: () => void;
   }) {
     this.#providers = providers;
     this.#newId = newId;
     this.#onStarted = onStarted;
     this.#onEnded = onEnded;
     this.#onDropped = onDropped;
+    this.#onChange = onChange;
+
+    this.#waiting.push(...(initial?.waiting ?? []));
+    if (initial?.current) {
+      const { song, atStartCheck, started, position } = initial.current;
+      this.#current = {
+        song,
+        atStartCheck,
+        started,
+        position,
+        // It waits, paused, for its Player; `since` starts on the Player's
+        // word, and a heard Song resumes where it had played.
+        since: undefined,
+        resumeAt: started ? position : undefined,
+      };
+    }
 
     for (const provider of providers) {
       provider.player.attach({
@@ -91,6 +134,33 @@ export class SongQueue {
         failed: (songId) => this.#failed(songId),
       });
     }
+  }
+
+  /** The Song Queue as the State file keeps it. */
+  snapshot(): SongQueueSnapshot {
+    const current = this.#current;
+    return {
+      waiting: [...this.#waiting],
+      current: current && {
+        song: current.song,
+        atStartCheck: current.atStartCheck,
+        started: current.started,
+        position: this.#positionOf(current),
+      },
+    };
+  }
+
+  /**
+   * How far the Current Song has played, in seconds. Away from its Player
+   * nothing of it plays — neither while it waits for one nor through a
+   * restart — so only a playing Player moves it on.
+   */
+  #positionOf(current: CurrentSong): number {
+    const playing =
+      current.since !== undefined && this.#playerOf(current.song)?.ready;
+    return (
+      current.position + (playing ? (Date.now() - current.since!) / 1000 : 0)
+    );
   }
 
   /**
@@ -129,6 +199,7 @@ export class SongQueue {
       current.started = true;
       this.#onStarted?.(current.song);
     }
+    this.#onChange?.();
   }
 
   /** The Current Song played to its end, if it ever went on air. */
@@ -141,6 +212,7 @@ export class SongQueue {
     }
     this.#current = undefined;
     this.#onEnded?.(current.song, "finished");
+    this.#onChange?.();
     this.#advance();
   }
 
@@ -154,6 +226,7 @@ export class SongQueue {
     }
     this.#current = undefined;
     this.#onEnded?.(current.song, "failed");
+    this.#onChange?.();
     this.#advance();
   }
 
@@ -162,6 +235,7 @@ export class SongQueue {
     this.#current = undefined;
     if (stop) this.#playerOf(current.song)?.stop();
     this.#onDropped?.(current.song, "unavailable");
+    this.#onChange?.();
     this.#advance();
   }
 
@@ -176,13 +250,28 @@ export class SongQueue {
       song: next,
       atStartCheck: next.duration === undefined,
       started: false,
+      position: 0,
     };
+    this.#onChange?.();
     this.#start(this.#current, player);
   }
 
-  /** Plays the Song on air from its start — muted at its Start Check. */
+  /**
+   * Plays the Song on air — muted at its Start Check, from `resumeAt` when
+   * the State file brings a heard Song back (ADR-0002), else from its start.
+   */
   #start(current: CurrentSong, player: Player): void {
     current.since = undefined;
+    if (current.resumeAt !== undefined) {
+      current.position = current.resumeAt;
+      player.play(current.song, {
+        muted: current.atStartCheck,
+        startAt: current.resumeAt,
+      });
+      current.resumeAt = undefined;
+      return;
+    }
+    current.position = 0;
     player.play(current.song, { muted: current.atStartCheck });
   }
 
