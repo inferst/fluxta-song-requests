@@ -56,6 +56,10 @@ const song: Song = {
   channel: "Rick Astley",
   channelUrl: "https://www.youtube.com/@RickAstleyYT",
   url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+  requesterPlatform: "",
+  requesterId: "",
+  requesterName: "",
+  reference: "",
 };
 
 describe("the Player Page's Player", () => {

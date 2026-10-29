@@ -1,4 +1,10 @@
-import type { Player, Provider, RefusalReason, Song } from "./provider";
+import type {
+  Player,
+  Provider,
+  RefusalReason,
+  RequestMetadata,
+  Song,
+} from "./provider";
 
 /** How Request Song is answered. */
 export type RequestAnswer =
@@ -24,6 +30,8 @@ type CurrentSong = {
    * failing (spike #3).
    */
   atStartCheck: boolean;
+  /** It has been heard, so its end is Song Ended rather than Song Dropped. */
+  started: boolean;
   /** When it began to play, by `Date.now()`; unset until its Player says so. */
   since?: number;
 };
@@ -49,26 +57,38 @@ function timeLeft(
 export class SongQueue {
   readonly #providers: Provider[];
   readonly #newId: () => string;
+  readonly #onStarted?: (song: Song) => void;
+  readonly #onEnded?: (song: Song, how: "finished" | "failed") => void;
+  readonly #onDropped?: (song: Song, why: "unavailable") => void;
   readonly #waiting: Song[] = [];
   #current?: CurrentSong;
 
   constructor({
     providers,
     newId,
+    onStarted,
+    onEnded,
+    onDropped,
   }: {
     /** The first is the default one, which answers search words. */
     providers: Provider[];
     newId: () => string;
+    onStarted?: (song: Song) => void;
+    onEnded?: (song: Song, how: "finished" | "failed") => void;
+    onDropped?: (song: Song, why: "unavailable") => void;
   }) {
     this.#providers = providers;
     this.#newId = newId;
+    this.#onStarted = onStarted;
+    this.#onEnded = onEnded;
+    this.#onDropped = onDropped;
 
     for (const provider of providers) {
       provider.player.attach({
         ready: () => this.#resume(provider),
         loaded: (songId, duration) => this.#loaded(songId, duration),
-        ended: (songId) => this.#leave(songId),
-        failed: (songId) => this.#leave(songId),
+        ended: (songId) => this.#ended(songId),
+        failed: (songId) => this.#failed(songId),
       });
     }
   }
@@ -96,7 +116,7 @@ export class SongQueue {
 
     if (current.atStartCheck) {
       if (duration === undefined) {
-        this.#drop(current);
+        this.#drop(current, true);
         return;
       }
       current.atStartCheck = false;
@@ -105,19 +125,43 @@ export class SongQueue {
     }
 
     current.since = Date.now();
+    if (!current.started) {
+      current.started = true;
+      this.#onStarted?.(current.song);
+    }
   }
 
-  /** The Current Song leaves the air; a stale report of an earlier one changes nothing. */
-  #leave(songId: string): void {
-    if (this.#current?.song.id !== songId) return;
+  /** The Current Song played to its end, if it ever went on air. */
+  #ended(songId: string): void {
+    const current = this.#current;
+    if (current?.song.id !== songId) return;
+    if (!current.started) {
+      this.#drop(current, false);
+      return;
+    }
     this.#current = undefined;
+    this.#onEnded?.(current.song, "finished");
     this.#advance();
   }
 
-  /** The Song on air goes without being heard; its Player stops it. */
-  #drop(current: CurrentSong): void {
+  /** A Player error drops a Song before it is heard, or fails it on air. */
+  #failed(songId: string): void {
+    const current = this.#current;
+    if (current?.song.id !== songId) return;
+    if (!current.started) {
+      this.#drop(current, false);
+      return;
+    }
     this.#current = undefined;
-    this.#playerOf(current.song)?.stop();
+    this.#onEnded?.(current.song, "failed");
+    this.#advance();
+  }
+
+  /** The Song goes without being heard; a live Start Check still needs stopping. */
+  #drop(current: CurrentSong, stop: boolean): void {
+    this.#current = undefined;
+    if (stop) this.#playerOf(current.song)?.stop();
+    this.#onDropped?.(current.song, "unavailable");
     this.#advance();
   }
 
@@ -131,6 +175,7 @@ export class SongQueue {
     this.#current = {
       song: next,
       atStartCheck: next.duration === undefined,
+      started: false,
     };
     this.#start(this.#current, player);
   }
@@ -164,7 +209,15 @@ export class SongQueue {
     return Math.round(seconds);
   }
 
-  async request(request: string): Promise<RequestAnswer> {
+  async request(
+    request: string,
+    metadata: RequestMetadata = {
+      requesterPlatform: "",
+      requesterId: "",
+      requesterName: "",
+      reference: "",
+    },
+  ): Promise<RequestAnswer> {
     const provider =
       this.#providers.find((p) => p.claims(request)) ?? this.#providers[0];
     const resolution = await provider.resolve(request);
@@ -173,7 +226,7 @@ export class SongQueue {
       return resolution;
     }
 
-    const song: Song = { ...resolution.track, id: this.#newId() };
+    const song: Song = { ...resolution.track, ...metadata, id: this.#newId() };
     this.#waiting.push(song);
     this.#advance();
 
