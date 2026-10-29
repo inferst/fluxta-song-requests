@@ -2,27 +2,19 @@ import { StandaloneTriggerContext } from "@fluxta/sdk/api";
 import type { RequestSongSettings } from "song-requests-protocol";
 import { describe, expect, it } from "vitest";
 
-import type { Player, Provider } from "../songs/provider";
+import type { Player, PlayerEvents, Provider, Song } from "../songs/provider";
 import { SongQueue } from "../songs/song-queue";
 import { RequestSongAction } from "./request-song";
-
-const idlePlayer: Player = {
-  ready: false,
-  play: () => {},
-  unmute: () => {},
-  stop: () => {},
-  attach: () => {},
-};
 
 /**
  * Claims `fake:<title>`, with `@<seconds>` after the title when it knows the
  * track's duration; refuses `fake:refuse`, and records what it was asked.
  */
-function fakeProvider() {
+function fakeProvider(player: Player) {
   const asked: string[] = [];
   const provider: Provider = {
     id: "fake",
-    player: idlePlayer,
+    player,
     claims: (request) => request.startsWith("fake:"),
     async resolve(request) {
       asked.push(request);
@@ -46,11 +38,27 @@ function fakeProvider() {
 }
 
 function requestSong() {
-  const { provider, asked } = fakeProvider();
+  let playerEvents: PlayerEvents | undefined;
+  let ready = false;
+  const played: Song[] = [];
+  const started: Song[] = [];
+  const player: Player = {
+    get ready() {
+      return ready;
+    },
+    play: (song) => played.push(song),
+    unmute: () => {},
+    stop: () => {},
+    attach: (events) => {
+      playerEvents = events;
+    },
+  };
+  const { provider, asked } = fakeProvider(player);
   let next = 0;
   const queue = new SongQueue({
     providers: [provider],
     newId: () => `song-${++next}`,
+    onStarted: (song) => started.push(song),
   });
   const action = new RequestSongAction(queue);
   const run = (settings: Record<string, unknown>) =>
@@ -60,7 +68,14 @@ function requestSong() {
         settings as RequestSongSettings,
       ),
     );
-  return { run, asked };
+  const start = () => {
+    ready = true;
+    playerEvents?.ready();
+    const song = played[0];
+    if (!song) throw new Error("no Song played");
+    playerEvents?.loaded(song.id, song.duration ?? 200);
+  };
+  return { run, asked, start, started };
 }
 
 describe("Request Song", () => {
@@ -112,6 +127,41 @@ describe("Request Song", () => {
       reason: "not-found",
     });
     expect(asked).toEqual([]);
+  });
+
+  it("hands the Requester and Reference to the Song unchanged", async () => {
+    const { run, start, started } = requestSong();
+
+    await run({
+      request: "fake:one@100",
+      requesterPlatform: " twitch ",
+      requesterId: 42,
+      requesterName: false,
+      reference: "  redemption-1  ",
+    });
+    start();
+
+    expect(started).toHaveLength(1);
+    expect(started[0]).toMatchObject({
+      requesterPlatform: " twitch ",
+      requesterId: "42",
+      requesterName: "false",
+      reference: "  redemption-1  ",
+    });
+  });
+
+  it("gives the streamer's own Request empty Requester and Reference fields", async () => {
+    const { run, start, started } = requestSong();
+
+    await run({ request: "fake:one@100" });
+    start();
+
+    expect(started[0]).toMatchObject({
+      requesterPlatform: "",
+      requesterId: "",
+      requesterName: "",
+      reference: "",
+    });
   });
 
   it("reads a Request a Run Variable turned into a number", async () => {

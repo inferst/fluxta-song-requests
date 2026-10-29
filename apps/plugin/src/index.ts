@@ -9,6 +9,14 @@ import {
 } from "song-requests-protocol";
 
 import { RequestSongAction } from "./actions/request-song";
+import {
+  SONG_DROPPED_EVENT,
+  SONG_ENDED_EVENT,
+  SONG_STARTED_EVENT,
+  toSongDroppedPayload,
+  toSongEndedPayload,
+  toSongStartedPayload,
+} from "./events";
 import { PagePlayer } from "./player-page/page-player";
 import { ensurePlayerKey } from "./player-page/player-key";
 import { startPlayerPageServer } from "./player-page/server";
@@ -44,7 +52,16 @@ const youtube = createYouTubeProvider({
   dataApi,
   region: () => chosenRegion() ?? SYSTEM_REGION,
 });
-const queue = new SongQueue({ providers: [youtube], newId: randomUUID });
+const queue = new SongQueue({
+  providers: [youtube],
+  newId: randomUUID,
+  onStarted: (song) =>
+    plugin.emitEvent(SONG_STARTED_EVENT, toSongStartedPayload(song)),
+  onEnded: (song, how) =>
+    plugin.emitEvent(SONG_ENDED_EVENT, toSongEndedPayload(song, how)),
+  onDropped: (song, why) =>
+    plugin.emitEvent(SONG_DROPPED_EVENT, toSongDroppedPayload(song, why)),
+});
 
 plugin.registerAction(new RequestSongAction(queue));
 

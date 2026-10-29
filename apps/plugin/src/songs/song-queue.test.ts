@@ -96,6 +96,24 @@ function songQueue(...providers: Provider[]) {
   return new SongQueue({ providers, newId: () => `song-${++next}` });
 }
 
+type HeardSongEvent =
+  | { event: "started"; song: Song }
+  | { event: "ended"; song: Song; how: "finished" | "failed" }
+  | { event: "dropped"; song: Song; why: "unavailable" };
+
+function eventQueue(...providers: Provider[]) {
+  let next = 0;
+  const heard: HeardSongEvent[] = [];
+  const queue = new SongQueue({
+    providers,
+    newId: () => `song-${++next}`,
+    onStarted: (song) => heard.push({ event: "started", song }),
+    onEnded: (song, how) => heard.push({ event: "ended", song, how }),
+    onDropped: (song, why) => heard.push({ event: "dropped", song, why }),
+  });
+  return { queue, heard };
+}
+
 describe("the Song Queue", () => {
   it("puts accepted Songs In turn and waits while no Player is ready", async () => {
     const { provider, player } = fakeProvider("fake");
@@ -225,6 +243,129 @@ describe("the Song Queue", () => {
       player.end(first.song);
     }
     expect(player.played).toEqual(["one", "two"]);
+  });
+});
+
+describe("the Song's Events", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("fires Started once the Player loads a Song, then Ended as finished", async () => {
+    const { provider, player } = fakeProvider("fake");
+    const { queue, heard } = eventQueue(provider);
+    player.connect();
+    const one = songOf(await queue.request("fake:one@200"));
+
+    expect(heard).toEqual([]);
+
+    player.load(one, 200);
+    player.load(one, 200);
+    expect(heard).toHaveLength(1);
+    expect(heard[0]).toMatchObject({
+      event: "started",
+      song: { id: "song-1", duration: 200 },
+    });
+
+    player.end(one);
+    expect(heard).toHaveLength(2);
+    expect(heard[1]).toMatchObject({
+      event: "ended",
+      song: { id: "song-1" },
+      how: "finished",
+    });
+  });
+
+  it("fires Ended as failed when the Player breaks on air", async () => {
+    const { provider, player } = fakeProvider("fake");
+    const { queue, heard } = eventQueue(provider);
+    player.connect();
+    const one = songOf(await queue.request("fake:one@200"));
+    player.load(one, 200);
+
+    player.fail(one);
+
+    expect(heard.map(({ event }) => event)).toEqual(["started", "ended"]);
+    expect(heard[1]).toMatchObject({ how: "failed" });
+  });
+
+  it("drops a Song its Player cannot load, without Started or Ended", async () => {
+    const { provider, player } = fakeProvider("fake");
+    const { queue, heard } = eventQueue(provider);
+    player.connect();
+    const one = songOf(await queue.request("fake:one@200"));
+    const two = songOf(await queue.request("fake:two@100"));
+
+    player.fail(one);
+    expect(heard).toEqual([
+      { event: "dropped", song: one, why: "unavailable" },
+    ]);
+
+    player.load(two, 100);
+    expect(heard.map(({ event }) => event)).toEqual(["dropped", "started"]);
+  });
+
+  it("fires Started only after a Start Check lets the Song be heard", async () => {
+    const { provider, player } = fakeProvider("fake");
+    const { queue, heard } = eventQueue(provider);
+    player.connect();
+    const one = songOf(await queue.request("fake:one"));
+
+    expect(heard).toEqual([]);
+
+    player.load(one, 180);
+    expect(heard).toHaveLength(1);
+    expect(heard[0]).toMatchObject({
+      event: "started",
+      song: { id: "song-1", duration: 180 },
+    });
+    expect(player.told).toEqual(["play one muted", "unmute one"]);
+  });
+
+  it("drops a live stream at its Start Check as unavailable", async () => {
+    const { provider, player } = fakeProvider("fake");
+    const { queue, heard } = eventQueue(provider);
+    player.connect();
+    const live = songOf(await queue.request("fake:live"));
+
+    player.load(live, undefined);
+
+    expect(heard).toEqual([
+      { event: "dropped", song: live, why: "unavailable" },
+    ]);
+  });
+
+  it("does not fire Started again when its Player comes back", async () => {
+    const { provider, player } = fakeProvider("fake");
+    const { queue, heard } = eventQueue(provider);
+    player.connect();
+    const one = songOf(await queue.request("fake:one"));
+    player.load(one, 200);
+
+    player.ready = false;
+    player.connect();
+    player.load(one, 200);
+
+    expect(heard.map(({ event }) => event)).toEqual(["started"]);
+  });
+
+  it("fires nothing while a Song buffers through a network drop", async () => {
+    const { provider, player } = fakeProvider("fake");
+    const { queue, heard } = eventQueue(provider);
+    player.connect();
+    const one = songOf(await queue.request("fake:one@200"));
+    player.load(one, 200);
+
+    vi.advanceTimersByTime(10 * 60_000);
+    expect(heard.map(({ event }) => event)).toEqual(["started"]);
+
+    player.end(one);
+    expect(heard.map(({ event }) => event)).toEqual(["started", "ended"]);
+    expect(heard[1]).toMatchObject({ how: "finished" });
   });
 });
 

@@ -23,11 +23,20 @@ export type Track = {
   duration?: number;
 };
 
-/** A Request accepted into the Song Queue. */
-export type Song = Track & {
-  /** The Song's own id, unique in the Song Queue and in the Song's Events. */
-  id: string;
+/** Who a Request is from and the scenario's opaque label for it. */
+export type RequestMetadata = {
+  requesterPlatform: string;
+  requesterId: string;
+  requesterName: string;
+  reference: string;
 };
+
+/** A Request accepted into the Song Queue. */
+export type Song = Track &
+  RequestMetadata & {
+    /** The Song's own id, unique in the Song Queue and in the Song's Events. */
+    id: string;
+  };
 
 /** Why a Request did not become a Song. */
 export type RefusalReason =
