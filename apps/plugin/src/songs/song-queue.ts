@@ -1,3 +1,10 @@
+import {
+  FALLBACK_RULE_DEFAULTS,
+  type BlocklistEntry,
+  type RequestSongOverrides,
+  type RuleDefaults,
+} from "song-requests-protocol";
+
 import type {
   Player,
   Provider,
@@ -5,6 +12,8 @@ import type {
   RequestMetadata,
   Song,
 } from "./provider";
+import { recordInHistory, trimHistory, type HistoryEntry } from "./history";
+import { checkRules, durationBoundsOf, resolveRules } from "./rules";
 
 /** How Request Song is answered. */
 export type RequestAnswer =
@@ -54,6 +63,8 @@ export type SongQueueSnapshot = {
     /** How far it has played, in seconds. */
     position: number;
   };
+  /** The Songs that left the air, newest first: at most 200, none older than 30 days. */
+  history: HistoryEntry[];
 };
 
 /**
@@ -72,22 +83,32 @@ function timeLeft(
 /**
  * The plugin's single Song Queue: Songs waiting in order of arrival, played
  * one at a time. It owns the order; a Provider's Player is told one Song at a
- * time (ADR-0003).
+ * time (ADR-0003). It also applies the Rules — each one above the Provider
+ * seam, over the track a Provider resolved — and keeps the History.
  */
 export class SongQueue {
   readonly #providers: Provider[];
   readonly #newId: () => string;
+  readonly #rules: {
+    defaults: () => RuleDefaults;
+    blocklist: () => BlocklistEntry[];
+  };
   readonly #onStarted?: (song: Song) => void;
   readonly #onEnded?: (song: Song, how: "finished" | "failed") => void;
-  readonly #onDropped?: (song: Song, why: "unavailable") => void;
+  readonly #onDropped?: (
+    song: Song,
+    why: "unavailable" | "too-long" | "too-short",
+  ) => void;
   readonly #onChange?: () => void;
   readonly #waiting: Song[] = [];
   #current?: CurrentSong;
+  #history: HistoryEntry[];
 
   constructor({
     providers,
     newId,
     initial,
+    rules,
     onStarted,
     onEnded,
     onDropped,
@@ -98,20 +119,39 @@ export class SongQueue {
     newId: () => string;
     /** What the State file saved: the queue comes back as it was (ADR-0002). */
     initial?: SongQueueSnapshot;
+    /**
+     * The Rules' Defaults and the Blocklist, as they stand now — they are
+     * Plugin settings, which change while the queue lives. Without this the
+     * #1 Defaults and an empty Blocklist apply.
+     */
+    rules?: {
+      defaults: () => RuleDefaults;
+      blocklist: () => BlocklistEntry[];
+    };
     onStarted?: (song: Song) => void;
     onEnded?: (song: Song, how: "finished" | "failed") => void;
-    onDropped?: (song: Song, why: "unavailable") => void;
+    onDropped?: (
+      song: Song,
+      why: "unavailable" | "too-long" | "too-short",
+    ) => void;
     /** The queue changed in a way the State file should keep. */
     onChange?: () => void;
   }) {
     this.#providers = providers;
     this.#newId = newId;
+    this.#rules = rules ?? {
+      defaults: () => FALLBACK_RULE_DEFAULTS,
+      blocklist: () => [],
+    };
     this.#onStarted = onStarted;
     this.#onEnded = onEnded;
     this.#onDropped = onDropped;
     this.#onChange = onChange;
 
     this.#waiting.push(...(initial?.waiting ?? []));
+    // Entries older than the History keeps are dropped on the way in, so a
+    // long-closed plugin does not carry them forever.
+    this.#history = trimHistory(initial?.history ?? []);
     if (initial?.current) {
       const { song, atStartCheck, started, position } = initial.current;
       this.#current = {
@@ -147,6 +187,7 @@ export class SongQueue {
         started: current.started,
         position: this.#positionOf(current),
       },
+      history: [...this.#history],
     };
   }
 
@@ -178,7 +219,9 @@ export class SongQueue {
   /**
    * Its Player tells how long the Song on air is. At its Start Check that
    * decides it: a live stream has no end and is dropped before anything of
-   * it is heard (ADR-0005); any other is unmuted and goes on air.
+   * it is heard (ADR-0005); one outside the duration bounds it was accepted
+   * with is dropped as `too-long` or `too-short`, still unheard; any other
+   * is unmuted and goes on air.
    */
   #loaded(songId: string, duration: number | undefined): void {
     const current = this.#current;
@@ -186,7 +229,16 @@ export class SongQueue {
 
     if (current.atStartCheck) {
       if (duration === undefined) {
-        this.#drop(current, true);
+        this.#drop(current, true, "unavailable");
+        return;
+      }
+      const bounds = current.song.durationBounds;
+      if (bounds?.maxSeconds !== undefined && duration > bounds.maxSeconds) {
+        this.#drop(current, true, "too-long");
+        return;
+      }
+      if (bounds?.minSeconds !== undefined && duration < bounds.minSeconds) {
+        this.#drop(current, true, "too-short");
         return;
       }
       current.atStartCheck = false;
@@ -211,6 +263,7 @@ export class SongQueue {
       return;
     }
     this.#current = undefined;
+    this.#recordHowItLeft(current.song, "finished");
     this.#onEnded?.(current.song, "finished");
     this.#onChange?.();
     this.#advance();
@@ -225,16 +278,30 @@ export class SongQueue {
       return;
     }
     this.#current = undefined;
+    this.#recordHowItLeft(current.song, "failed");
     this.#onEnded?.(current.song, "failed");
     this.#onChange?.();
     this.#advance();
   }
 
+  /** A Song that was heard enters the History, newest first. */
+  #recordHowItLeft(song: Song, how: "finished" | "failed"): void {
+    this.#history = recordInHistory(this.#history, {
+      song,
+      how,
+      at: Date.now(),
+    });
+  }
+
   /** The Song goes without being heard; a live Start Check still needs stopping. */
-  #drop(current: CurrentSong, stop: boolean): void {
+  #drop(
+    current: CurrentSong,
+    stop: boolean,
+    why: "unavailable" | "too-long" | "too-short" = "unavailable",
+  ): void {
     this.#current = undefined;
     if (stop) this.#playerOf(current.song)?.stop();
-    this.#onDropped?.(current.song, "unavailable");
+    this.#onDropped?.(current.song, why);
     this.#onChange?.();
     this.#advance();
   }
@@ -306,6 +373,7 @@ export class SongQueue {
       requesterName: "",
       reference: "",
     },
+    options: { overrides?: RequestSongOverrides } = {},
   ): Promise<RequestAnswer> {
     const provider =
       this.#providers.find((p) => p.claims(request)) ?? this.#providers[0];
@@ -315,7 +383,32 @@ export class SongQueue {
       return resolution;
     }
 
-    const song: Song = { ...resolution.track, ...metadata, id: this.#newId() };
+    // The Rules run over the resolved track, above the Provider seam, in
+    // the table's order; a step's Overrides win over the Defaults.
+    const rules = resolveRules(options.overrides, this.#rules.defaults());
+    const reason = checkRules(rules, {
+      track: resolution.track,
+      requester: {
+        requesterPlatform: metadata.requesterPlatform,
+        requesterId: metadata.requesterId,
+      },
+      waiting: this.#waiting,
+      current: this.#current?.song,
+      history: this.#history,
+      blocklist: this.#rules.blocklist(),
+    });
+    if (reason) {
+      return { kind: "refused", reason };
+    }
+
+    const song: Song = {
+      ...resolution.track,
+      ...metadata,
+      id: this.#newId(),
+      // The bounds it was accepted with travel with it: without the API
+      // Key its duration is learned only at its Start Check (ADR-0005).
+      durationBounds: durationBoundsOf(rules),
+    };
     this.#waiting.push(song);
     this.#advance();
 

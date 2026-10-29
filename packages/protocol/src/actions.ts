@@ -1,3 +1,5 @@
+import type { RequestSongOverrides } from "./rules";
+
 /**
  * Request Song's settings, as its Action Editor saves them.
  *
@@ -11,4 +13,8 @@ export type RequestSongSettings = {
   requesterId?: string;
   requesterName?: string;
   reference?: string;
+  /** Per Rule: follow the Default, a value of its own, or do not check. */
+  overrides?: RequestSongOverrides;
 };
+
+export type { RequestSongOverrides, RuleOverride } from "./rules";

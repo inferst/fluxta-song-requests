@@ -72,6 +72,11 @@ export function resolveVideo(
         : "",
       url: watchUrl(id),
       duration: secondsOf(contentDetails?.duration),
+      // Music only reads YouTube's category, so it is checked only where
+      // the Data API told it — never on an oEmbed track (ADR-0005).
+      ...(snippet?.categoryId !== undefined
+        ? { music: snippet.categoryId === "10" }
+        : {}),
     },
   };
 }

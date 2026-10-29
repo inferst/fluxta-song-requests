@@ -58,7 +58,7 @@ Editor-only and Player Page-only rebuilds restart nothing — reopen the editor 
 - `apps/plugin` (`song-requests-plugin`) — the Plugin sidecar: the Node.js process Fluxta starts. tsdown bundles it, `ws` included, into `dist/song-requests/index.mjs` and copies `manifest.json` and `icons/` beside it.
 - `apps/editor` (`song-requests-editor`) — the editors, React + Vite + Tailwind, built into `dist/song-requests/editor/`: the Plugin Editor (`plugin.html`, the plugin's own tab in Fluxta) and one Action Editor per Action.
 - `apps/player` (`song-requests-player`) — the Player Page, plain TypeScript + Vite, built into `dist/song-requests/player/` and served by the sidecar: YouTube's IFrame Player, filling the page, driven over a WebSocket.
-- `packages/protocol` (`song-requests-protocol`) — what the sidecar, the editors and the Player Page share: the editor ↔ sidecar messages (`editor.ts`), the Player Page ↔ sidecar messages (`page.ts`), each an object with an `event` discriminant checked with zod, and every Action's settings type (`actions.ts`). Consumed as TypeScript source; it has no build.
+- `packages/protocol` (`song-requests-protocol`) — what the sidecar, the editors and the Player Page share: the editor ↔ sidecar messages (`editor.ts`), the Player Page ↔ sidecar messages (`page.ts`), each an object with an `event` discriminant checked with zod, every Action's settings type (`actions.ts`) and the Rules' shared types (`rules.ts`). Consumed as TypeScript source; it has no build.
 
 ### Plugin sidecar (`apps/plugin/src`)
 
@@ -66,10 +66,12 @@ Editor-only and Player Page-only rebuilds restart nothing — reopen the editor 
 index.ts            composition root: the YouTube Provider on the Player Page's Player, the Song Queue, the Action, editor messages, Plugin settings (the Player Key, the API Key, the Region), the Player Page's server
 plugin.ts           the single `Plugin` instance from @fluxta/sdk/api
 settings.ts         Plugin settings as the sidecar keeps them; it is their only writer
-state-file.ts       the State file (ADR-0002): the Song Queue in one JSON file of the plugin's own in the OS's per-user application data folder, written atomically, read back on start
+state-file.ts       the State file (ADR-0002): the Song Queue and the History in one JSON file of the plugin's own in the OS's per-user application data folder, written atomically, read back on start
 songs/
   provider.ts       the Provider seam (ADR-0003): Track, Song, Refusal reasons, Player and its events
-  song-queue.ts     the Song Queue: routes a Request to the Provider that claims it, keeps the order, hands each Provider's Player one Song at a time, runs the Start Check, answers `eta`
+  song-queue.ts     the Song Queue: routes a Request to the Provider that claims it, keeps the order, applies the Rules (with the step's Overrides), hands each Provider's Player one Song at a time, runs the Start Check, answers `eta`
+  rules.ts          the Rules: a step's Overrides over the Defaults, resolved and checked against a track and the queue
+  history.ts        the History: the Songs that left the air, newest first, at most 200 and none older than 30 days
 youtube/
   link.ts           a Request that is one YouTube link → its video id
   provider.ts       the YouTube Provider: a link checked through the Data API with a usable API Key, else through oEmbed; search words refused

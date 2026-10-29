@@ -1,6 +1,7 @@
 import { EditorPage, PluginEditorLayout } from "@fluxta/sdk/ui";
 
 import { PlayerPageSection } from "./PlayerPageSection";
+import { RulesSection } from "./RulesSection";
 import { SettingsSection } from "./SettingsSection";
 import { usePluginStatus } from "./usePluginStatus";
 
@@ -46,6 +47,11 @@ export function PluginEditorApp() {
           label: "Player",
           tone: status.playerConnected ? "ok" : "idle",
           content: <PlayerPageSection status={status} />,
+        },
+        {
+          id: "rules",
+          label: "Rules",
+          content: <RulesSection status={status} />,
         },
         {
           id: "settings",

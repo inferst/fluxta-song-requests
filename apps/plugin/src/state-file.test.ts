@@ -42,6 +42,7 @@ const snapshot: SongQueueSnapshot = {
     started: true,
     position: 42.5,
   },
+  history: [{ song, how: "finished", at: 1_760_000_000_000 }],
 };
 
 describe("the State file", () => {
@@ -64,6 +65,19 @@ describe("the State file", () => {
 
     expect((await fs.readFile(file, "utf8")).startsWith("{")).toBe(true);
     expect(await state.load()).toEqual({ snapshot, recovered: false });
+  });
+
+  it("reads a file written before the History as an empty one", async () => {
+    await fs.mkdir(path.dirname(file), { recursive: true });
+    const before = (({ waiting, current }) => ({ waiting, current }))(snapshot);
+    await fs.writeFile(file, JSON.stringify({ version: 1, ...before }));
+
+    const loaded = await new StateFile(file).load();
+
+    expect(loaded).toEqual({
+      snapshot: { ...before, history: [] },
+      recovered: false,
+    });
   });
 
   it("moves a broken file aside and starts empty", async () => {

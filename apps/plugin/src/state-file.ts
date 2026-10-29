@@ -27,11 +27,24 @@ const SongSchema = z.object({
   channelUrl: z.string(),
   url: z.string(),
   duration: z.number().optional(),
+  music: z.boolean().optional(),
   requesterPlatform: z.string(),
   requesterId: z.string(),
   requesterName: z.string(),
   reference: z.string(),
   id: z.string(),
+  durationBounds: z
+    .object({
+      maxSeconds: z.number().optional(),
+      minSeconds: z.number().optional(),
+    })
+    .optional(),
+});
+
+const HistoryEntrySchema = z.object({
+  song: SongSchema,
+  how: z.enum(["finished", "failed"]),
+  at: z.number(),
 });
 
 const StateFileSchema = z.object({
@@ -45,6 +58,12 @@ const StateFileSchema = z.object({
       position: z.number(),
     })
     .optional(),
+  /**
+   * Kept since the Rules and the History; a file written before them has
+   * none, and reads as empty — the shape change is the addition, so the
+   * version stays 1.
+   */
+  history: z.array(HistoryEntrySchema).optional(),
 });
 
 /**
@@ -99,9 +118,14 @@ export class StateFile {
     }
 
     try {
-      const { version, ...snapshot } = StateFileSchema.parse(JSON.parse(text));
+      const { version, history, ...snapshot } = StateFileSchema.parse(
+        JSON.parse(text),
+      );
       void version;
-      return { snapshot, recovered: false };
+      return {
+        snapshot: { ...snapshot, history: history ?? [] },
+        recovered: false,
+      };
     } catch {
       return this.#moveAside();
     }

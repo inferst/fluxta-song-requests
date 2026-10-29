@@ -42,12 +42,16 @@ export class RequestSongAction extends StandaloneAction<RequestSongSettings> {
       return { outcome: "refused", reason: "not-found" };
     }
 
-    const answer = await this.#queue.request(request, {
-      requesterPlatform: templatedText(settings?.requesterPlatform) ?? "",
-      requesterId: templatedText(settings?.requesterId) ?? "",
-      requesterName: templatedText(settings?.requesterName) ?? "",
-      reference: templatedText(settings?.reference) ?? "",
-    });
+    const answer = await this.#queue.request(
+      request,
+      {
+        requesterPlatform: templatedText(settings?.requesterPlatform) ?? "",
+        requesterId: templatedText(settings?.requesterId) ?? "",
+        requesterName: templatedText(settings?.requesterName) ?? "",
+        reference: templatedText(settings?.reference) ?? "",
+      },
+      { overrides: settings?.overrides },
+    );
 
     if (answer.kind === "refused") {
       return { outcome: "refused", reason: answer.reason };

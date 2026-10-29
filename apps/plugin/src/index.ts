@@ -4,8 +4,11 @@ import { fileURLToPath } from "node:url";
 import {
   isEditorMessage,
   isRegion,
+  FALLBACK_RULE_DEFAULTS,
+  type BlocklistEntry,
   type PluginMessage,
   type PluginStatus,
+  type RuleDefaults,
 } from "song-requests-protocol";
 
 import { RequestSongAction } from "./actions/request-song";
@@ -63,6 +66,15 @@ const queue = new SongQueue({
   providers: [youtube],
   newId: randomUUID,
   initial: restored.snapshot,
+  // The Rules' Defaults and the Blocklist are Plugin settings: read live, so
+  // a change in the Plugin Editor applies to the next Request.
+  rules: {
+    defaults: () => ({
+      ...FALLBACK_RULE_DEFAULTS,
+      ...settings?.ruleDefaults,
+    }),
+    blocklist: () => settings?.blocklist ?? [],
+  },
   onChange: saveState,
   onStarted: (song) =>
     plugin.emitEvent(SONG_STARTED_EVENT, toSongStartedPayload(song)),
@@ -109,6 +121,11 @@ function status(): PluginStatus {
     apiKey: dataApi.status(),
     region: { chosen: chosenRegion(), system: SYSTEM_REGION },
     stateFile: { recovered: restored.recovered },
+    defaults: {
+      ...FALLBACK_RULE_DEFAULTS,
+      ...settings?.ruleDefaults,
+    } satisfies RuleDefaults,
+    blocklist: (settings?.blocklist ?? []) as BlocklistEntry[],
   };
 }
 
@@ -158,6 +175,35 @@ plugin.onReceiveFromEditor((message: unknown) => {
     case "set-region":
       if (!settings) return;
       saveSettings({ region: message.region ?? undefined });
+      publish();
+      return;
+
+    case "set-rule-defaults":
+      if (!settings) return;
+      // The editor writes 0 for "no shortest bound"; the setting is the
+      // value's absence, so an explicit 0 removes it.
+      if (message.defaults.shortestDurationSeconds === 0) {
+        const ruleDefaults = {
+          ...settings.ruleDefaults,
+          ...message.defaults,
+        };
+        delete ruleDefaults.shortestDurationSeconds;
+        saveSettings({ ruleDefaults });
+      } else {
+        saveSettings({
+          ruleDefaults: { ...settings.ruleDefaults, ...message.defaults },
+        });
+      }
+      publish();
+      return;
+
+    case "remove-blocklist-entry":
+      if (!settings) return;
+      saveSettings({
+        blocklist: (settings.blocklist ?? []).filter(
+          (entry) => JSON.stringify(entry) !== JSON.stringify(message.entry),
+        ),
+      });
       publish();
       return;
   }
