@@ -74,9 +74,10 @@ export interface Player {
   readonly ready: boolean;
   /**
    * Plays the Song in place of whatever was on. A muted Song is not heard
-   * until `unmute` — its Start Check.
+   * until `unmute` — its Start Check. `startAt` is seconds in to start at:
+   * the Current Song goes on from where a restart found it (ADR-0002).
    */
-  play(song: Song, options: { muted: boolean }): void;
+  play(song: Song, options: { muted: boolean; startAt?: number }): void;
   /** Lets the Song on air be heard; a Song that is no longer on air stays as it is. */
   unmute(songId: string): void;
   /** Stops whatever is on; nothing plays until the next `play`. */

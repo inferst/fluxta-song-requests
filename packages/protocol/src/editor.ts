@@ -38,6 +38,13 @@ const PluginStatusSchema = z.object({
     /** The computer's, from its locale. */
     system: RegionSchema,
   }),
+  stateFile: z.object({
+    /**
+     * `true` once the State file could not be read and was moved aside, so
+     * the plugin started with an empty Song Queue (ADR-0002).
+     */
+    recovered: z.boolean(),
+  }),
 });
 
 const EditorMessageSchema = z.discriminatedUnion("event", [

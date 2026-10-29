@@ -86,7 +86,13 @@ describe("the Player Page's Player", () => {
 
     player.play(song, { muted: false });
     expect(page.sent).toEqual([
-      { event: "load", songId: "song-1", videoId: "dQw4w9WgXcQ", muted: false },
+      {
+        event: "load",
+        songId: "song-1",
+        videoId: "dQw4w9WgXcQ",
+        muted: false,
+        startAt: 0,
+      },
     ]);
 
     page.says({ event: "ended", songId: "song-1" });
@@ -107,7 +113,13 @@ describe("the Player Page's Player", () => {
     player.stop();
 
     expect(page.sent).toEqual([
-      { event: "load", songId: "song-1", videoId: "dQw4w9WgXcQ", muted: true },
+      {
+        event: "load",
+        songId: "song-1",
+        videoId: "dQw4w9WgXcQ",
+        muted: true,
+        startAt: 0,
+      },
       { event: "unmute", songId: "song-1" },
       { event: "stop" },
     ]);

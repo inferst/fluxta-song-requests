@@ -40,6 +40,7 @@ declare namespace YT {
   class Player {
     constructor(element: string | HTMLElement, options: PlayerOptions);
     loadVideoById(videoId: string): void;
+    loadVideoById(video: { videoId: string; startSeconds?: number }): void;
     stopVideo(): void;
     seekTo(seconds: number, allowSeekAhead: boolean): void;
     mute(): void;

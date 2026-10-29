@@ -23,6 +23,7 @@ import { startPlayerPageServer } from "./player-page/server";
 import { plugin } from "./plugin";
 import type { PluginSettings } from "./settings";
 import { SongQueue } from "./songs/song-queue";
+import { StateFile } from "./state-file";
 import { DataApi } from "./youtube/data-api";
 import { createYouTubeProvider } from "./youtube/provider";
 import { systemRegion } from "./youtube/region";
@@ -52,9 +53,17 @@ const youtube = createYouTubeProvider({
   dataApi,
   region: () => chosenRegion() ?? SYSTEM_REGION,
 });
+
+// The Song Queue comes back from the State file (ADR-0002); a file that could
+// not be read was moved aside, and the Plugin Editor says so.
+const stateFile = new StateFile();
+const restored = await stateFile.load();
+
 const queue = new SongQueue({
   providers: [youtube],
   newId: randomUUID,
+  initial: restored.snapshot,
+  onChange: saveState,
   onStarted: (song) =>
     plugin.emitEvent(SONG_STARTED_EVENT, toSongStartedPayload(song)),
   onEnded: (song, how) =>
@@ -62,6 +71,26 @@ const queue = new SongQueue({
   onDropped: (song, why) =>
     plugin.emitEvent(SONG_DROPPED_EVENT, toSongDroppedPayload(song, why)),
 });
+
+/**
+ * The State file keeps the Song Queue across restarts: on every change, and
+ * every few seconds while a Song plays, so a restart loses only those few
+ * seconds of how far the Current Song has played.
+ */
+function saveState(): void {
+  stateFile
+    .save(queue.snapshot())
+    .catch(() =>
+      console.error("The Song Queue's State file could not be written"),
+    );
+}
+
+// Nothing of the Current Song plays while its Player is away, so the few
+// seconds matter only while one is connected.
+const stateSaveTimer = setInterval(() => {
+  if (queue.snapshot().current) saveState();
+}, 5_000);
+stateSaveTimer.unref();
 
 plugin.registerAction(new RequestSongAction(queue));
 
@@ -79,6 +108,7 @@ function status(): PluginStatus {
     playerConnected: pagePlayer.ready,
     apiKey: dataApi.status(),
     region: { chosen: chosenRegion(), system: SYSTEM_REGION },
+    stateFile: { recovered: restored.recovered },
   };
 }
 
