@@ -7,8 +7,8 @@ import { nextQuotaReset } from "./quota-reset";
 const DATA_API = "https://www.googleapis.com/youtube/v3";
 
 /**
- * Fluxta waits about 30 s for an Action to answer, and a Request the Data API
- * cannot answer still goes on to oEmbed: each gets well under half of it.
+ * Fluxta waits about 30 s for an Action to answer. A search needs two calls;
+ * a link the Data API cannot answer goes on to oEmbed. Each gets 10 s.
  */
 const DATA_API_TIMEOUT_MS = 10_000;
 
@@ -48,6 +48,9 @@ export type VideosAnswer =
   /** YouTube did not answer, or not in a way that says anything of the key. */
   | { kind: "unavailable" };
 
+export type SearchAnswer =
+  { kind: "ids"; ids: string[] } | Exclude<VideosAnswer, { kind: "videos" }>;
+
 /**
  * Any video answers a check of the key: one gone since still comes back as
  * an empty list, which says the key works as well as a found one would.
@@ -67,6 +70,8 @@ export class DataApi {
   #verdict: "none" | "accepted" | "refused" = "none";
   /** Until when, by `Date.now()`, YouTube says the key's daily units are spent. */
   #spentUntil = 0;
+  /** Search Queries has its own daily bucket; it cannot starve link checks. */
+  #searchSpentUntil = 0;
   #resetTimer?: ReturnType<typeof setTimeout>;
   readonly #listeners: (() => void)[] = [];
 
@@ -83,6 +88,7 @@ export class DataApi {
     this.#key = key.trim();
     this.#verdict = "none";
     this.#spentUntil = 0;
+    this.#searchSpentUntil = 0;
     clearTimeout(this.#resetTimer);
     this.#notify();
   }
@@ -133,17 +139,61 @@ export class DataApi {
     return this.#list("snippet,contentDetails,status", ids);
   }
 
+  async search(
+    words: string,
+    region: string,
+    musicOnly: boolean,
+  ): Promise<SearchAnswer> {
+    const reason = this.unusable();
+    if (reason) return { kind: "unusable", reason };
+    if (Date.now() < this.#searchSpentUntil) {
+      return { kind: "unusable", reason: "quota-exhausted" };
+    }
+    const url = new URL(`${DATA_API}/search`);
+    url.search = new URLSearchParams({
+      part: "snippet",
+      q: words,
+      type: "video",
+      videoEmbeddable: "true",
+      videoSyndicated: "true",
+      regionCode: region,
+      maxResults: "5",
+      ...(musicOnly ? { videoCategoryId: "10" } : {}),
+    }).toString();
+    const answer = await this.#request<SearchItem>(url, "search");
+    if (answer.kind !== "items") return answer;
+    const ids = answer.items
+      .flatMap((item) =>
+        typeof item?.id?.videoId === "string" && item.id.videoId
+          ? [item.id.videoId]
+          : [],
+      )
+      .slice(0, 5);
+    return { kind: "ids", ids };
+  }
+
   async #list(part: string, ids: string[]): Promise<VideosAnswer> {
+    const url = new URL(`${DATA_API}/videos`);
+    url.searchParams.set("part", part);
+    url.searchParams.set("id", ids.join(","));
+    const answer = await this.#request<Video>(url, "videos");
+    return answer.kind === "items"
+      ? { kind: "videos", videos: answer.items }
+      : answer;
+  }
+
+  async #request<T>(
+    url: URL,
+    bucket: "search" | "videos",
+  ): Promise<
+    { kind: "items"; items: T[] } | Exclude<VideosAnswer, { kind: "videos" }>
+  > {
     const reason = this.unusable();
     if (reason) return { kind: "unusable", reason };
 
     const key = this.#key;
-    const url = new URL(`${DATA_API}/videos`);
-    url.searchParams.set("part", part);
-    url.searchParams.set("id", ids.join(","));
-
     let response: Response;
-    let body: ApiBody | null;
+    let body: ApiBody<T> | null;
 
     try {
       // In a header rather than the address, so the key is in no URL
@@ -152,7 +202,7 @@ export class DataApi {
         headers: { "x-goog-api-key": key },
         signal: AbortSignal.timeout(DATA_API_TIMEOUT_MS),
       });
-      body = (await response.json()) as ApiBody | null;
+      body = (await response.json()) as ApiBody<T> | null;
     } catch {
       return { kind: "unavailable" };
     }
@@ -166,7 +216,14 @@ export class DataApi {
       return { kind: "unusable", reason: "api-key-invalid" };
     }
     if (unitsSpent(response.status, body)) {
-      if (current) this.#spend();
+      if (current) {
+        if (bucket === "search") {
+          this.#searchSpentUntil = nextQuotaReset(Date.now());
+          this.#hear("accepted");
+        } else {
+          this.#spend();
+        }
+      }
       return { kind: "unusable", reason: "quota-exhausted" };
     }
     if (!response.ok || !Array.isArray(body?.items)) {
@@ -174,7 +231,7 @@ export class DataApi {
     }
 
     if (current) this.#hear("accepted");
-    return { kind: "videos", videos: body.items };
+    return { kind: "items", items: body.items };
   }
 
   #hear(verdict: "accepted" | "refused"): void {
@@ -204,8 +261,10 @@ export class DataApi {
   }
 }
 
-type ApiBody = {
-  items?: Video[];
+type SearchItem = { id?: { videoId?: string } };
+
+type ApiBody<T = unknown> = {
+  items?: T[];
   error?: {
     message?: string;
     errors?: { reason?: string }[];
@@ -245,8 +304,8 @@ function keyRefused(status: number, body: ApiBody | null): boolean {
 }
 
 /**
- * The 10,000 daily units everything but `search.list` shares are spent: 403
- * `quotaExceeded` (YouTube's quota page, October 2026).
+ * YouTube's 403 `quotaExceeded` applies to the called method's bucket:
+ * Search Queries for search.list, daily units for videos.list (ADR-0005).
  */
 function unitsSpent(status: number, body: ApiBody | null): boolean {
   return (

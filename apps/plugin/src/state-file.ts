@@ -5,6 +5,9 @@ import path from "node:path";
 import { z } from "zod";
 
 import type { SongQueueSnapshot } from "./songs/song-queue";
+import type { SearchCacheEntry } from "./youtube/search-cache";
+
+type StateSnapshot = SongQueueSnapshot & { searchCache?: SearchCacheEntry[] };
 
 /**
  * The plugin's State file (ADR-0002): the Song Queue — with Requesters and
@@ -64,6 +67,16 @@ const StateFileSchema = z.object({
    * version stays 1.
    */
   history: z.array(HistoryEntrySchema).optional(),
+  /** Additive: older State files keep their queue and read with no search cache. */
+  searchCache: z
+    .array(
+      z.object({
+        words: z.string(),
+        videoId: z.string(),
+        foundAt: z.number().nonnegative(),
+      }),
+    )
+    .optional(),
 });
 
 /**
@@ -91,7 +104,7 @@ export function stateFilePath(): string {
 
 /** What `load` found: the saved queue, unless the file was missing or broken. */
 export type LoadedState = {
-  snapshot?: SongQueueSnapshot;
+  snapshot?: StateSnapshot;
   /** The file could not be read and was moved aside; the plugin starts empty. */
   recovered: boolean;
 };
@@ -131,13 +144,13 @@ export class StateFile {
     }
   }
 
-  save(snapshot: SongQueueSnapshot): Promise<void> {
+  save(snapshot: StateSnapshot): Promise<void> {
     const write = this.#pending.then(() => this.#write(snapshot));
     this.#pending = write.catch(() => {});
     return write;
   }
 
-  async #write(snapshot: SongQueueSnapshot): Promise<void> {
+  async #write(snapshot: StateSnapshot): Promise<void> {
     await fs.mkdir(path.dirname(this.#path), { recursive: true });
     const text = JSON.stringify({ version: STATE_VERSION, ...snapshot });
     // Atomic: a temporary file in the same folder renamed over the old one —

@@ -74,6 +74,12 @@ export type RefusalReason =
 export type Resolution =
   { kind: "track"; track: Track } | { kind: "refused"; reason: RefusalReason };
 
+/** The Song Queue's checks, so a search can try the next playable candidate. */
+export type ResolveOptions = {
+  musicOnly: boolean;
+  refusalOf(track: Track): RefusalReason | undefined;
+};
+
 /** What a Player tells the Song Queue. */
 export interface PlayerEvents {
   /** It can play now — a Player Page connected. */
@@ -114,6 +120,6 @@ export interface Provider {
    * claims is search words, which the default Provider answers.
    */
   claims(request: string): boolean;
-  resolve(request: string): Promise<Resolution>;
+  resolve(request: string, options?: ResolveOptions): Promise<Resolution>;
   readonly player: Player;
 }
