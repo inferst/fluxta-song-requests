@@ -15,6 +15,12 @@ import { RequestSongAction } from "./actions/request-song";
 import { SkipAction } from "./actions/skip";
 import { PlaybackAction } from "./actions/playback";
 import { VolumeAction } from "./actions/volume";
+import { RemoveSongAction } from "./actions/remove-song";
+import { ClearQueueAction } from "./actions/clear-queue";
+import { BlockSongAction } from "./actions/block-song";
+import { RequestsAction } from "./actions/requests";
+import { GetSongAction } from "./actions/get-song";
+import { createRequestsSource } from "./sources/requests";
 import { createPlaybackSources } from "./sources/playback";
 import {
   SONG_DROPPED_EVENT,
@@ -84,7 +90,23 @@ const queue = new SongQueue({
     }),
     blocklist: () => settings?.blocklist ?? [],
   },
-  onChange: saveState,
+  onChange: () => {
+    saveState();
+    publish();
+  },
+  onBlock: (entry) => {
+    if (!settings) return false;
+    const blocklist = settings.blocklist ?? [];
+    if (
+      !blocklist.some(
+        (existing) => JSON.stringify(existing) === JSON.stringify(entry),
+      )
+    ) {
+      saveSettings({ blocklist: [...blocklist, entry] });
+    }
+    publish();
+    return true;
+  },
   onStarted: (song) =>
     plugin.emitEvent(SONG_STARTED_EVENT, toSongStartedPayload(song)),
   onEnded: (song, how) =>
@@ -117,6 +139,12 @@ plugin.registerAction(new RequestSongAction(queue));
 plugin.registerAction(new SkipAction(queue));
 plugin.registerAction(new PlaybackAction(queue));
 plugin.registerAction(new VolumeAction(queue));
+plugin.registerAction(new RemoveSongAction(queue));
+plugin.registerAction(new ClearQueueAction(queue));
+plugin.registerAction(new BlockSongAction(queue));
+plugin.registerAction(new RequestsAction(queue));
+plugin.registerAction(new GetSongAction(queue));
+plugin.registerSource(createRequestsSource(queue));
 for (const source of createPlaybackSources(queue))
   plugin.registerSource(source);
 
@@ -138,6 +166,7 @@ function status(): PluginStatus {
     defaults: {
       ...FALLBACK_RULE_DEFAULTS,
       ...settings?.ruleDefaults,
+      requestsOpen: queue.requestsOpen,
     } satisfies RuleDefaults,
     blocklist: (settings?.blocklist ?? []) as BlocklistEntry[],
   };
@@ -194,6 +223,9 @@ plugin.onReceiveFromEditor((message: unknown) => {
 
     case "set-rule-defaults":
       if (!settings) return;
+      if (message.defaults.requestsOpen !== undefined) {
+        queue.requests(message.defaults.requestsOpen ? "open" : "close");
+      }
       // The editor writes 0 for "no shortest bound"; the setting is the
       // value's absence, so an explicit 0 removes it.
       if (message.defaults.shortestDurationSeconds === 0) {

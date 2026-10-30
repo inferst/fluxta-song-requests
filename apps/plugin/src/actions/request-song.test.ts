@@ -78,10 +78,29 @@ function requestSong() {
     if (!song) throw new Error("no Song played");
     playerEvents?.loaded(song.id, song.duration ?? 200);
   };
-  return { run, asked, start, started };
+  return { run, asked, start, started, queue };
 }
 
 describe("Request Song", () => {
+  it("puts Next Songs behind earlier Next ones and ahead of In turn Songs without interrupting playback", async () => {
+    const { run, start, queue } = requestSong();
+    await run({ request: "fake:current@100" });
+    start();
+    await run({ request: "fake:in-turn@100" });
+    expect(
+      await run({ request: "fake:first-next@100", position: "next" }),
+    ).toMatchObject({ position: 1, eta: 100 });
+    expect(
+      await run({ request: "fake:second-next@100", position: "next" }),
+    ).toMatchObject({ position: 2, eta: 200 });
+    expect(queue.snapshot().current?.song.title).toBe("current");
+    expect(queue.snapshot().waiting.map((song) => song.title)).toEqual([
+      "first-next",
+      "second-next",
+      "in-turn",
+    ]);
+  });
+
   it("produces the accepted Song and its place for a chat reply", async () => {
     const { run } = requestSong();
     await run({ request: "fake:first" });

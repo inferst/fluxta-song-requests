@@ -1,4 +1,9 @@
-import { EditorPage, TemplateField, useActionSettings } from "@fluxta/sdk/ui";
+import {
+  EditorPage,
+  SelectField,
+  TemplateField,
+  useActionSettings,
+} from "@fluxta/sdk/ui";
 import type { RequestSongSettings } from "song-requests-protocol";
 
 import { OverridesSection } from "./OverridesSection";
@@ -10,6 +15,7 @@ export function RequestSongEditor() {
     requesterId: "",
     requesterName: "",
     reference: "",
+    position: "inTurn",
   });
 
   return (
@@ -44,6 +50,18 @@ export function RequestSongEditor() {
         value={values.reference ?? ""}
         onChange={set("reference")}
         hint="Optional. An opaque label, such as a Redemption's or donation's id. Every Event about the Song hands it back unchanged."
+      />
+      <SelectField
+        label="Position"
+        value={values.position ?? "inTurn"}
+        onChange={(value) =>
+          set("position")(value as RequestSongSettings["position"])
+        }
+        options={[
+          { value: "inTurn", label: "In turn" },
+          { value: "next", label: "Next" },
+        ]}
+        hint="Next goes ahead of every In turn Song, behind earlier Next ones. The Current Song plays on."
       />
       <OverridesSection
         values={values.overrides ?? {}}

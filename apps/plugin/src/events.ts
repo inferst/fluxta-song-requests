@@ -1,4 +1,4 @@
-import type { Song } from "./songs/provider";
+import type { Song, SongDroppedReason } from "./songs/provider";
 
 export const SONG_STARTED_EVENT = "song-started";
 export const SONG_ENDED_EVENT = "song-ended";
@@ -24,10 +24,10 @@ export type SongEndedPayload = SongPayload & {
 };
 
 export type SongDroppedPayload = SongPayload & {
-  why: "unavailable" | "too-long" | "too-short" | "removed";
+  why: SongDroppedReason;
 };
 
-function toSongPayload(song: Song): SongPayload {
+export function toSongPayload(song: Song): SongPayload {
   return {
     songId: song.id,
     provider: song.provider,

@@ -161,7 +161,8 @@ function BlocklistSection({
             description={
               entry.kind === "track"
                 ? `${entry.provider} · ${entry.trackId}`
-                : entry.channelUrl
+                : entry.channelUrl ||
+                  `${entry.provider ?? ""} · ${entry.channelId ?? ""}`
             }
             actions={
               <Button

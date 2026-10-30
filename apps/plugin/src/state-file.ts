@@ -27,6 +27,7 @@ const SongSchema = z.object({
   trackId: z.string(),
   title: z.string(),
   channel: z.string(),
+  channelId: z.string().optional(),
   channelUrl: z.string(),
   url: z.string(),
   duration: z.number().optional(),
@@ -36,6 +37,8 @@ const SongSchema = z.object({
   requesterName: z.string(),
   reference: z.string(),
   id: z.string(),
+  position: z.enum(["inTurn", "next"]).optional(),
+  requestOrder: z.number().int().nonnegative().optional(),
   durationBounds: z
     .object({
       maxSeconds: z.number().optional(),
@@ -52,6 +55,7 @@ const HistoryEntrySchema = z.object({
 
 const StateFileSchema = z.object({
   version: z.literal(STATE_VERSION),
+  requestsOpen: z.boolean().optional(),
   isPaused: z.boolean().optional(),
   volume: z.number().int().min(0).max(100).optional(),
   waiting: z.array(SongSchema),

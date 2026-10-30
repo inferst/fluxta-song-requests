@@ -17,8 +17,9 @@ follow.
    usually what a viewer typed after the command. Later steps can read whether
    it was accepted, the Song's title and its place in the queue.
 
-Songs play one at a time, in the order they were requested. While no Player
-Page is open, they wait.
+Songs play one at a time. In turn Songs keep their arrival order; a Request
+Song step can choose **Next** to go ahead of them, behind earlier Next Songs.
+The Current Song plays on. While no Player Page is open, Songs wait.
 
 ## Playback controls
 
@@ -42,3 +43,28 @@ to the duration total. Is Playing is false until a Song goes on air, while
 paused, or with its Player disconnected. Is Paused records the streamer's
 explicit pause. An empty Current Title or Current Requester is an empty string.
 These sources do not provide automatic live button-title bindings.
+
+## Managing the Song Queue
+
+- **Remove Song** removes a Requester's latest waiting Song (`!wrongsong`),
+  all of a Requester's waiting Songs, the Song at a position, or one by
+  `songId`. Requesters match by Platform and ID. It returns `removed` and
+  the first removed Song's `title`, firing Song Dropped with `removed` for
+  each. An empty Requester ID matches nothing.
+- **Clear Queue** removes every waiting Song, returns `removed`, and fires
+  Song Dropped with `cleared` for each. The Current Song plays on.
+- **Block Song** selects the Current Song or one by `songId` and adds its
+  track or channel to the Blocklist in Plugin settings. A channel uses its
+  Provider ID when known and its address otherwise. Covered waiting Songs
+  are dropped with `blocked`; a covered Current Song is skipped. A Song
+  still at its Start Check is dropped unheard. It returns the selected `title`.
+- **Requests** opens, closes or toggles Requests Open and returns `isOpen`.
+  It survives restarts; playback continues while closed. A Request Song step
+  can still Override the Requests Open Rule. **Requests Open** is also a
+  Query Source for If/Else, read from current state after reconnects.
+- **Get Song** answers for the Current Song, a waiting position, or a
+  Requester's next waiting Song (`!song`, `!when`). It returns the Song's
+  Event fields, `position` and `eta` in seconds. Waiting positions start at
+  1; the Current Song has position and `eta` 0. An unknown duration or an
+  `eta` that depends on one produces no value. A missing target produces
+  no Song fields.

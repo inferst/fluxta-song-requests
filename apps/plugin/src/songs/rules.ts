@@ -137,6 +137,19 @@ function isTrack(track: Track, provider: string, trackId: string): boolean {
   return track.provider === provider && track.trackId === trackId;
 }
 
+export function matchesBlocklistEntry(
+  track: Track,
+  entry: BlocklistEntry,
+): boolean {
+  if (entry.kind === "track")
+    return isTrack(track, entry.provider, entry.trackId);
+  if (entry.provider !== undefined && entry.provider !== track.provider)
+    return false;
+  if (entry.provider !== undefined && entry.channelId && track.channelId)
+    return entry.channelId === track.channelId;
+  return entry.channelUrl !== "" && entry.channelUrl === track.channelUrl;
+}
+
 /**
  * Why the Request behind `context` is refused, by the Rules in their table's
  * order — `undefined` when every Rule that is checked passes. Duration
@@ -214,9 +227,7 @@ export function checkRules(
 
   if (rules.enforceBlocklist) {
     const blocked = blocklist.some((entry) =>
-      entry.kind === "track"
-        ? isTrack(track, entry.provider, entry.trackId)
-        : entry.channelUrl !== "" && entry.channelUrl === track.channelUrl,
+      matchesBlocklistEntry(track, entry),
     );
     if (blocked) return "blocked";
   }

@@ -26,6 +26,7 @@ const song = {
   trackId: "one",
   title: "One",
   channel: "Fake channel",
+  channelId: "fake-channel",
   channelUrl: "fake://channel",
   url: "fake://one",
   duration: 200,
@@ -84,6 +85,56 @@ describe("the State file", () => {
       volume: 0,
     });
   });
+  it("restores Requests Open, Next order and arrival order through a real State file", async () => {
+    const { provider } = fakeProvider();
+    let id = 0;
+    const queue = new SongQueue({
+      providers: [provider],
+      newId: () => `${++id}`,
+    });
+    const requester = {
+      requesterPlatform: "twitch",
+      requesterId: "42",
+      requesterName: "Viewer",
+      reference: "redemption",
+    };
+    await queue.request("fake:in-turn@100", requester);
+    await queue.request("fake:next@100", requester, { position: "next" });
+    queue.requests("close");
+    await new StateFile(file).save(queue.snapshot());
+    const loaded = await new StateFile(file).load();
+    const restored = new SongQueue({
+      providers: [fakeProvider().provider],
+      newId: () => `${++id}`,
+      initial: loaded.snapshot,
+    });
+    expect(restored.requestsOpen).toBe(false);
+    expect(await restored.request("fake:closed@100")).toEqual({
+      kind: "refused",
+      reason: "closed",
+    });
+    restored.requests("open");
+    expect(
+      await restored.request("fake:new-next@100", requester, {
+        position: "next",
+      }),
+    ).toMatchObject({ position: 2 });
+    expect(restored.snapshot().waiting.map((song) => song.title)).toEqual([
+      "next",
+      "new-next",
+      "in-turn",
+    ]);
+    const latest = {
+      kind: "requesterLatest" as const,
+      requesterPlatform: "twitch",
+      requesterId: "42",
+    };
+    expect(restored.remove(latest).map((song) => song.title)).toEqual([
+      "new-next",
+    ]);
+    expect(restored.remove(latest).map((song) => song.title)).toEqual(["next"]);
+  });
+
   it("lives in Fluxta's per-user application data folder, in one of the plugin's own", () => {
     const at = stateFilePath();
 

@@ -12,6 +12,8 @@ export type Track = {
   trackId: string;
   title: string;
   channel: string;
+  /** The Provider's stable channel id, when known. */
+  channelId?: string;
   /** The channel's address, which a channel in the Blocklist is matched by without the API Key. */
   channelUrl: string;
   /** A link to it a viewer can open. */
@@ -42,6 +44,10 @@ export type Song = Track &
   RequestMetadata & {
     /** The Song's own id, unique in the Song Queue and in the Song's Events. */
     id: string;
+    /** Next Songs precede In turn Songs without interrupting the Current Song. */
+    position?: "inTurn" | "next";
+    /** Arrival order, independent of the Song's place among Next Songs. */
+    requestOrder?: number;
     /**
      * The duration bounds it was accepted with — its step's Overrides
      * included. They travel with it and are checked at its Start Check,
@@ -49,6 +55,10 @@ export type Song = Track &
      */
     durationBounds?: { maxSeconds?: number; minSeconds?: number };
   };
+
+/** Why a Song left the Song Queue without ever being heard. */
+export type SongDroppedReason =
+  "unavailable" | "too-long" | "too-short" | "removed" | "cleared" | "blocked";
 
 /** Why a Request did not become a Song. */
 export type RefusalReason =

@@ -4,6 +4,7 @@ import type {
   PlayOptions,
   Provider,
   Song,
+  Track,
 } from "../songs/provider";
 
 export class FakePlayer implements Player {
@@ -51,7 +52,11 @@ export class FakePlayer implements Player {
   }
 }
 
-export function fakeProvider(id = "fake", player = new FakePlayer()) {
+export function fakeProvider(
+  id = "fake",
+  player = new FakePlayer(),
+  trackDetails: Partial<Track> = {},
+) {
   const provider: Provider = {
     id,
     player,
@@ -68,6 +73,7 @@ export function fakeProvider(id = "fake", player = new FakePlayer()) {
           channelUrl: `${id}://channel`,
           url: `${id}://${title}`,
           duration: seconds === undefined ? undefined : Number(seconds),
+          ...trackDetails,
         },
       };
     },
