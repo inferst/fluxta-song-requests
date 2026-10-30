@@ -24,7 +24,7 @@ export type SongEndedPayload = SongPayload & {
 };
 
 export type SongDroppedPayload = SongPayload & {
-  why: "unavailable";
+  why: "unavailable" | "too-long" | "too-short";
 };
 
 function toSongPayload(song: Song): SongPayload {

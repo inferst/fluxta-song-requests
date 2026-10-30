@@ -172,4 +172,27 @@ describe("Request Song", () => {
     // 42 is no one's link, so the default Provider gets it, as text.
     expect(asked).toEqual(["42"]);
   });
+
+  it("answers by a step's Overrides, not the Defaults", async () => {
+    const { run } = requestSong();
+
+    // The Default ten minutes refuses this; the step allows twenty.
+    expect(await run({ request: "fake:long@900" })).toEqual({
+      outcome: "refused",
+      reason: "too-long",
+    });
+    expect(
+      await run({
+        request: "fake:long@900",
+        overrides: {
+          longestDurationSeconds: { mode: "value", value: 1200 },
+        },
+      }),
+    ).toMatchObject({ outcome: "accepted", duration: 900 });
+    // The Override went no further than its own step.
+    expect(await run({ request: "fake:long@900" })).toEqual({
+      outcome: "refused",
+      reason: "too-long",
+    });
+  });
 });
