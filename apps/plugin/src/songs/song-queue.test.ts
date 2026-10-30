@@ -6,7 +6,13 @@ import {
   type RuleDefaults,
 } from "song-requests-protocol";
 
-import type { Player, PlayerEvents, Provider, Song } from "./provider";
+import type {
+  Player,
+  PlayerEvents,
+  Provider,
+  Song,
+  SongDroppedReason,
+} from "./provider";
 import {
   SongQueue,
   type RequestAnswer,
@@ -118,7 +124,7 @@ type HeardSongEvent =
   | {
       event: "dropped";
       song: Song;
-      why: "unavailable" | "too-long" | "too-short" | "removed";
+      why: SongDroppedReason;
     };
 
 function eventQueue(...providers: Provider[]) {
@@ -520,6 +526,7 @@ describe("the State file's snapshot", () => {
     vi.advanceTimersByTime(42_000);
 
     expect(queue.snapshot()).toEqual({
+      requestsOpen: true,
       isPaused: false,
       volume: 100,
       waiting: [expect.objectContaining({ id: "song-2", title: "two" })],

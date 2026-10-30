@@ -63,7 +63,7 @@ Editor-only and Player Page-only rebuilds restart nothing — reopen the editor 
 ### Plugin sidecar (`apps/plugin/src`)
 
 ```
-index.ts            composition root: the YouTube Provider on the Player Page's Player, the Song Queue, the Action, editor messages, Plugin settings (the Player Key, the API Key, the Region), the Player Page's server
+index.ts            composition root: the YouTube Provider on the Player Page's Player, the Song Queue, the Actions, editor messages, Plugin settings (the Player Key, the API Key, the Region), the Player Page's server
 plugin.ts           the single `Plugin` instance from @fluxta/sdk/api
 settings.ts         Plugin settings as the sidecar keeps them; it is their only writer
 state-file.ts       the State file (ADR-0002): the Song Queue and the History in one JSON file of the plugin's own in the OS's per-user application data folder, written atomically, read back on start
@@ -107,7 +107,7 @@ A Request travels `actions/request-song.ts` → `SongQueue.request` → the Prov
 - **Naming in the manifest** ([manifest reference](https://fluxta.app/docs/plugins/reference/manifest)): every kind — an Action `type` — is kebab-case (`request-song`); every key — a produced value, a settings field — is camelCase (`songId`).
 - **Nothing above the Provider seam knows YouTube** (ADR-0003). The Song Queue, the Actions and the Events deal in Tracks and Songs; a video id, oEmbed or anything else YouTube's stays under `youtube/` and `player-page/`. The tests' fake second Provider (`songs/song-queue.test.ts`) is what keeps it so — a change that needs YouTube there belongs behind the seam.
 - **A Player holds no queue.** The Song Queue hands it the next Song only when the Current Song is over; never pass it a list.
-- **Playback state is queried.** The eight playback Value Sources use `registerSource`, declared as `resolve: "query"` and `context: "standalone"`. Each reads current local state; no host reconnect callback or `setVariable` replay is needed. They do not provide automatic live button-title bindings.
+- **Playback state is queried.** The eight playback Value Sources and Requests Open use `registerSource`, declared as `resolve: "query"` and `context: "standalone"`. Each reads current local state; no host reconnect callback or `setVariable` replay is needed. Requests Open is kept in the State file and shared by the Requests Action and the Plugin Editor. These sources do not provide automatic live button-title bindings.
 - **The Player Page's address is `localhost`, never an IP.** YouTube refuses to play on a page whose host is an IP address (error 150, spike #3), so the server listens on both loopbacks and every address it shows says `localhost`. The page stays on this computer (ADR-0001).
 - **The Player Page shows the player and nothing else, and must stay in view.** YouTube's policies forbid a player that is not shown and anything drawn over it (ADR-0001). Information about the Song belongs on another page, not on this one.
 - **The Player Key never reaches a log line or an error message.** It appears only in the Player Page's address, shown in the Plugin Editor to be copied into OBS.

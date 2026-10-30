@@ -3,9 +3,8 @@ import type { RequestSongOverrides } from "./rules";
 /**
  * Request Song's settings, as its Action Editor saves them.
  *
- * Every setting is edited through a `TemplateField`, so by the time the
- * sidecar reads one the host may have substituted it into a number or a
- * boolean — read it as a templated value, never as a bare string.
+ * Text settings are edited through `TemplateField`, so the host may
+ * substitute a number or boolean. The sidecar reads them as templated values.
  */
 export type RequestSongSettings = {
   request?: string;
@@ -13,6 +12,7 @@ export type RequestSongSettings = {
   requesterId?: string;
   requesterName?: string;
   reference?: string;
+  position?: "inTurn" | "next";
   /** Per Rule: follow the Default, a value of its own, or do not check. */
   overrides?: RequestSongOverrides;
 };
@@ -22,3 +22,28 @@ export type { RequestSongOverrides, RuleOverride } from "./rules";
 export type PlaybackSettings = { mode?: "pause" | "resume" | "toggle" };
 export type VolumeSettings = { mode?: "set" | "change"; amount?: string };
 export type SkipSettings = Record<string, never>;
+
+export type RemoveSongSettings = {
+  target?: "requesterLatest" | "requesterAll" | "position" | "songId";
+  requesterPlatform?: string;
+  requesterId?: string;
+  position?: string;
+  songId?: string;
+};
+
+export type ClearQueueSettings = Record<string, never>;
+
+export type GetSongSettings = {
+  target?: "current" | "position" | "requesterNext";
+  position?: string;
+  requesterPlatform?: string;
+  requesterId?: string;
+};
+
+export type RequestsSettings = { mode?: "open" | "close" | "toggle" };
+
+export type BlockSongSettings = {
+  target?: "current" | "songId";
+  songId?: string;
+  kind?: "track" | "channel";
+};

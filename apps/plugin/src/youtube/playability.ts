@@ -67,6 +67,7 @@ export function resolveVideo(
       trackId: id,
       title: snippet?.title ?? "",
       channel: snippet?.channelTitle ?? "",
+      ...(snippet?.channelId ? { channelId: snippet.channelId } : {}),
       channelUrl: snippet?.channelId
         ? `https://www.youtube.com/channel/${snippet.channelId}`
         : "",

@@ -11,10 +11,16 @@ import type {
   RefusalReason,
   RequestMetadata,
   Song,
+  SongDroppedReason,
   Track,
 } from "./provider";
 import { recordInHistory, trimHistory, type HistoryEntry } from "./history";
-import { checkRules, durationBoundsOf, resolveRules } from "./rules";
+import {
+  checkRules,
+  durationBoundsOf,
+  resolveRules,
+  matchesBlocklistEntry,
+} from "./rules";
 
 /** How Request Song is answered. */
 export type RequestAnswer =
@@ -30,6 +36,20 @@ export type RequestAnswer =
       eta: number | undefined;
     }
   | { kind: "refused"; reason: RefusalReason };
+
+export type RemoveSongTarget =
+  | {
+      kind: "requesterLatest" | "requesterAll";
+      requesterPlatform: string;
+      requesterId: string;
+    }
+  | { kind: "position"; position: number }
+  | { kind: "songId"; songId: string };
+
+export type GetSongTarget =
+  | { kind: "current" }
+  | { kind: "position"; position: number }
+  | { kind: "requesterNext"; requesterPlatform: string; requesterId: string };
 
 /** The Song on air — or waiting, paused, for its Player to come back. */
 type CurrentSong = {
@@ -56,6 +76,7 @@ type CurrentSong = {
 
 /** The Song Queue as the State file keeps it (ADR-0002). */
 export type SongQueueSnapshot = {
+  requestsOpen?: boolean;
   isPaused?: boolean;
   volume?: number;
   waiting: Song[];
@@ -89,16 +110,16 @@ export class SongQueue {
     song: Song,
     how: "finished" | "failed" | "skipped",
   ) => void;
-  readonly #onDropped?: (
-    song: Song,
-    why: "unavailable" | "too-long" | "too-short" | "removed",
-  ) => void;
+  readonly #onDropped?: (song: Song, why: SongDroppedReason) => void;
   readonly #onChange?: () => void;
+  readonly #onBlock?: (entry: BlocklistEntry) => boolean;
   readonly #waiting: Song[] = [];
   #current?: CurrentSong;
   #history: HistoryEntry[];
+  #requestsOpen?: boolean;
   #paused: boolean;
   #volume: number;
+  #requestOrder = 0;
 
   constructor({
     providers,
@@ -109,6 +130,7 @@ export class SongQueue {
     onEnded,
     onDropped,
     onChange,
+    onBlock,
   }: {
     /** The first is the default one, which answers search words. */
     providers: Provider[];
@@ -126,10 +148,9 @@ export class SongQueue {
     };
     onStarted?: (song: Song) => void;
     onEnded?: (song: Song, how: "finished" | "failed" | "skipped") => void;
-    onDropped?: (
-      song: Song,
-      why: "unavailable" | "too-long" | "too-short" | "removed",
-    ) => void;
+    onDropped?: (song: Song, why: SongDroppedReason) => void;
+    /** Adds a Blocklist entry to Plugin settings; false leaves every Song intact. */
+    onBlock?: (entry: BlocklistEntry) => boolean;
     /** The queue changed in a way the State file should keep. */
     onChange?: () => void;
   }) {
@@ -143,10 +164,16 @@ export class SongQueue {
     this.#onEnded = onEnded;
     this.#onDropped = onDropped;
     this.#onChange = onChange;
+    this.#onBlock = onBlock;
+    this.#requestsOpen = initial?.requestsOpen;
     this.#paused = initial?.isPaused ?? false;
     this.#volume = initial?.volume ?? 100;
 
     this.#waiting.push(...(initial?.waiting ?? []));
+    this.#requestOrder = Math.max(
+      0,
+      ...this.#waiting.map((song) => song.requestOrder ?? 0),
+    );
     // Entries older than the History keeps are dropped on the way in, so a
     // long-closed plugin does not carry them forever.
     this.#history = trimHistory(initial?.history ?? []);
@@ -179,6 +206,7 @@ export class SongQueue {
   snapshot(): SongQueueSnapshot {
     const current = this.#current;
     return {
+      requestsOpen: this.requestsOpen,
       isPaused: this.#paused,
       volume: this.#volume,
       waiting: [...this.#waiting],
@@ -318,7 +346,7 @@ export class SongQueue {
   #drop(
     current: CurrentSong,
     stop: boolean,
-    why: "unavailable" | "too-long" | "too-short" | "removed" = "unavailable",
+    why: SongDroppedReason = "unavailable",
   ): void {
     this.#current = undefined;
     if (stop) this.#playerOf(current.song)?.stop();
@@ -372,6 +400,137 @@ export class SongQueue {
 
   #playerOf(song: Song) {
     return this.#providers.find((p) => p.id === song.provider)?.player;
+  }
+
+  blockSong(
+    target: { kind: "current" } | { kind: "songId"; songId: string },
+    kind: "track" | "channel",
+  ): Song | undefined {
+    const song =
+      target.kind === "current"
+        ? this.#current?.song
+        : this.#current?.song.id === target.songId
+          ? this.#current.song
+          : this.#waiting.find((song) => song.id === target.songId);
+    if (!song || !this.#onBlock) return undefined;
+    const entry: BlocklistEntry =
+      kind === "track"
+        ? { kind: "track", provider: song.provider, trackId: song.trackId }
+        : {
+            kind: "channel",
+            provider: song.provider,
+            ...(song.channelId ? { channelId: song.channelId } : {}),
+            channelUrl: song.channelUrl,
+          };
+    if (entry.kind === "channel" && !entry.channelId && !entry.channelUrl)
+      return undefined;
+    if (!this.#onBlock(entry)) return undefined;
+    // Remove all matches before advancing, so a blocked Song can never be handed to a Player.
+    const waiting = this.#waiting.filter((waiting) =>
+      matchesBlocklistEntry(waiting, entry),
+    );
+    this.#dropWaiting(waiting, "blocked");
+    const current = this.#current;
+    if (current && matchesBlocklistEntry(current.song, entry)) {
+      if (current.started) this.#finish(current, "skipped", true);
+      else this.#drop(current, true, "blocked");
+    } else this.#advance();
+    return song;
+  }
+
+  get requestsOpen(): boolean {
+    return this.#requestsOpen ?? this.#rules.defaults().requestsOpen;
+  }
+
+  requests(mode: "open" | "close" | "toggle"): boolean {
+    const isOpen =
+      mode === "open"
+        ? true
+        : mode === "close"
+          ? false
+          : mode === "toggle"
+            ? !this.requestsOpen
+            : this.requestsOpen;
+    this.#requestsOpen = isOpen;
+    this.#onChange?.();
+    return isOpen;
+  }
+
+  getSong(
+    target: GetSongTarget,
+  ): { song: Song; position: number; eta: number | undefined } | undefined {
+    if (target.kind === "current") {
+      return this.#current && { song: this.#current.song, position: 0, eta: 0 };
+    }
+    const song =
+      target.kind === "position"
+        ? Number.isInteger(target.position) && target.position > 0
+          ? this.#waiting[target.position - 1]
+          : undefined
+        : target.requesterId === ""
+          ? undefined
+          : this.#waiting.find(
+              (song) =>
+                song.requesterPlatform === target.requesterPlatform &&
+                song.requesterId === target.requesterId,
+            );
+    return (
+      song && {
+        song,
+        position: this.#waiting.indexOf(song) + 1,
+        eta: this.#etaOf(song),
+      }
+    );
+  }
+
+  #dropWaiting(songs: Song[], why: SongDroppedReason): void {
+    if (!songs.length) return;
+    for (const song of songs)
+      this.#waiting.splice(this.#waiting.indexOf(song), 1);
+    for (const song of songs) this.#onDropped?.(song, why);
+    this.#onChange?.();
+  }
+
+  clear(): number {
+    const songs = [...this.#waiting];
+    this.#dropWaiting(songs, "cleared");
+    return songs.length;
+  }
+
+  /** Removes waiting Songs only; a Requester is identified by Platform and id. */
+  remove(target: RemoveSongTarget): Song[] {
+    let matches: Song[];
+    if (target.kind === "position") {
+      const song =
+        Number.isInteger(target.position) && target.position > 0
+          ? this.#waiting[target.position - 1]
+          : undefined;
+      matches = song ? [song] : [];
+    } else if (target.kind === "songId") {
+      matches = this.#waiting.filter((song) => song.id === target.songId);
+    } else {
+      matches =
+        target.requesterId === ""
+          ? []
+          : this.#waiting.filter(
+              (song) =>
+                song.requesterPlatform === target.requesterPlatform &&
+                song.requesterId === target.requesterId,
+            );
+      if (target.kind === "requesterLatest") {
+        const latest = matches.reduce<Song | undefined>(
+          (latest, song) =>
+            !latest || (song.requestOrder ?? 0) >= (latest.requestOrder ?? 0)
+              ? song
+              : latest,
+          undefined,
+        );
+        matches = latest ? [latest] : [];
+      }
+    }
+    this.#dropWaiting(matches, "removed");
+    if (matches.length) this.#advance();
+    return matches;
   }
 
   /** Ends the Current Song; one still at its Start Check was never heard. */
@@ -485,15 +644,23 @@ export class SongQueue {
       requesterName: "",
       reference: "",
     },
-    options: { overrides?: RequestSongOverrides } = {},
+    options: {
+      overrides?: RequestSongOverrides;
+      position?: "inTurn" | "next";
+    } = {},
   ): Promise<RequestAnswer> {
     const provider =
       this.#providers.find((p) => p.claims(request)) ?? this.#providers[0];
-    const rules = resolveRules(options.overrides, this.#rules.defaults());
+    const currentRules = () =>
+      resolveRules(options.overrides, {
+        ...this.#rules.defaults(),
+        requestsOpen: this.requestsOpen,
+      });
+    const rules = currentRules();
     // A search tries candidates through the same Rules as a link. The
     // Provider knows no queue or Rules, only how to ask whether a track passes.
     const refusalOf = (track: Track) =>
-      checkRules(rules, {
+      checkRules(currentRules(), {
         track,
         requester: {
           requesterPlatform: metadata.requesterPlatform,
@@ -521,11 +688,20 @@ export class SongQueue {
       ...resolution.track,
       ...metadata,
       id: this.#newId(),
+      position: options.position === "next" ? "next" : "inTurn",
+      requestOrder: ++this.#requestOrder,
       // The bounds it was accepted with travel with it: without the API
       // Key its duration is learned only at its Start Check (ADR-0005).
-      durationBounds: durationBoundsOf(rules),
+      durationBounds: durationBoundsOf(currentRules()),
     };
-    this.#waiting.push(song);
+    const firstInTurn = this.#waiting.findIndex(
+      (waiting) => waiting.position !== "next",
+    );
+    if (song.position === "next" && firstInTurn !== -1) {
+      this.#waiting.splice(firstInTurn, 0, song);
+    } else {
+      this.#waiting.push(song);
+    }
     this.#advance();
 
     const position = this.#waiting.indexOf(song) + 1;

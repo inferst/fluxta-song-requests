@@ -65,6 +65,18 @@ describe("the editors' messages", () => {
     ).toBe(false);
   });
 
+  it("accepts a channel's Provider id when removing its Blocklist entry", () => {
+    const entry = {
+      kind: "channel",
+      provider: "fake",
+      channelId: "channel-1",
+      channelUrl: "fake://channel",
+    };
+    expect(isEditorMessage({ event: "remove-blocklist-entry", entry })).toBe(
+      true,
+    );
+  });
+
   it("accepts the status the sidecar sends, and nothing short of it", () => {
     const status = {
       playerUrl: "http://localhost:29362/player?key=k",

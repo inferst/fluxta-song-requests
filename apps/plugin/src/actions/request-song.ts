@@ -18,7 +18,7 @@ export const REQUEST_SONG_ACTION = "request-song";
 type Produced = Record<string, string | number>;
 
 /**
- * Request Song: checks a Request, puts the Song into the Song Queue In turn
+ * Request Song: checks a Request, puts the Song into the Song Queue
  * and answers at once, for the scenario to reply in chat (ADR-0004). It never
  * waits for the Song to play.
  */
@@ -50,7 +50,7 @@ export class RequestSongAction extends StandaloneAction<RequestSongSettings> {
         requesterName: templatedText(settings?.requesterName) ?? "",
         reference: templatedText(settings?.reference) ?? "",
       },
-      { overrides: settings?.overrides },
+      { overrides: settings?.overrides, position: settings?.position },
     );
 
     if (answer.kind === "refused") {

@@ -132,6 +132,7 @@ describe("the YouTube Provider with the API Key", () => {
         trackId: ID,
         title: "Rick Astley - Never Gonna Give You Up (Official Video)",
         channel: "Rick Astley",
+        channelId: "UCuAXFkgsw1L7xaCfnd5JJOw",
         channelUrl: "https://www.youtube.com/channel/UCuAXFkgsw1L7xaCfnd5JJOw",
         url: `https://www.youtube.com/watch?v=${ID}`,
         duration: 213,

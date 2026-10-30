@@ -12,6 +12,7 @@ import {
 } from "./events";
 import type { Song } from "./songs/provider";
 import { SongQueue } from "./songs/song-queue";
+import { createRequestsSource } from "./sources/requests";
 import { createPlaybackSources } from "./sources/playback";
 import { fakeProvider } from "./test-support/fake-provider";
 
@@ -63,10 +64,13 @@ const song: Song = {
 };
 
 describe("manifest.json", () => {
-  it("declares the eight registered playback values as Standalone Query Sources with matching types", async () => {
+  it("declares the registered playback and Requests Open values as Standalone Query Sources with matching types", async () => {
     const { provider } = fakeProvider();
     const queue = new SongQueue({ providers: [provider], newId: () => "song" });
-    const sources = createPlaybackSources(queue);
+    const sources = [
+      ...createPlaybackSources(queue),
+      createRequestsSource(queue),
+    ];
     expect(manifest.sources.map(({ key, type }) => [key, type])).toEqual([
       ["isPlaying", "boolean"],
       ["isPaused", "boolean"],
@@ -76,6 +80,7 @@ describe("manifest.json", () => {
       ["queueLength", "number"],
       ["queueDuration", "number"],
       ["volume", "number"],
+      ["requestsOpen", "boolean"],
     ]);
     expect(sources.map((source) => source.key)).toEqual(
       manifest.sources.map((source) => source.key),
@@ -107,6 +112,33 @@ describe("manifest.json", () => {
       {
         type: "volume",
         produces: [{ key: "volume", name: "Volume", type: "number" }],
+      },
+      {
+        type: "remove-song",
+        produces: [
+          { key: "removed", name: "Removed", type: "number" },
+          { key: "title", name: "Title", type: "string" },
+        ],
+      },
+      {
+        type: "clear-queue",
+        produces: [{ key: "removed", name: "Removed", type: "number" }],
+      },
+      {
+        type: "block-song",
+        produces: [{ key: "title", name: "Title", type: "string" }],
+      },
+      {
+        type: "requests",
+        produces: [{ key: "isOpen", name: "Is Open", type: "boolean" }],
+      },
+      {
+        type: "get-song",
+        produces: [
+          ...songFields,
+          { key: "position", name: "Position", type: "number" },
+          { key: "eta", name: "Starts In (Seconds)", type: "number" },
+        ],
       },
     ]);
   });

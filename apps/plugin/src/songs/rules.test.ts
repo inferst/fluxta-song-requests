@@ -381,3 +381,31 @@ describe("the duration bounds a Song travels with", () => {
     ).toBe(undefined);
   });
 });
+
+describe("channel identity in the Blocklist", () => {
+  it("uses a channel id when both sides know it, otherwise falls back to its address", () => {
+    const rules = resolveRules(undefined, defaults);
+    const entry = {
+      kind: "channel" as const,
+      provider: "fake",
+      channelId: "stable",
+      channelUrl: "fake://old-address",
+    };
+    const reason = (changes: Partial<Track>) =>
+      checkRules(rules, { track: track(changes), blocklist: [entry] });
+    expect(
+      reason({ channelId: "stable", channelUrl: "fake://new-address" }),
+    ).toBe("blocked");
+    expect(
+      reason({ channelId: "different", channelUrl: "fake://old-address" }),
+    ).toBeUndefined();
+    expect(reason({ channelUrl: "fake://old-address" })).toBe("blocked");
+    expect(
+      reason({
+        provider: "other",
+        channelId: "stable",
+        channelUrl: "fake://old-address",
+      }),
+    ).toBeUndefined();
+  });
+});

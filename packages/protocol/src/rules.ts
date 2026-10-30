@@ -68,12 +68,17 @@ export type RequestSongOverrides = {
 
 /**
  * One thing the streamer never wants played: a track, by its Provider and
- * the Provider's own id, or a channel, by its address — the address oEmbed
+ * the Provider's own id, or a channel, by its Provider and id when known, else its address — the address oEmbed
  * gives when there is no API Key (ADR-0005).
  */
 export type BlocklistEntry =
   | { kind: "track"; provider: string; trackId: string }
-  | { kind: "channel"; channelUrl: string };
+  | {
+      kind: "channel";
+      provider?: string;
+      channelId?: string;
+      channelUrl: string;
+    };
 
 const RuleDefaultsSchema = z.object({
   requestsOpen: z.boolean(),
@@ -92,7 +97,12 @@ const BlocklistEntrySchema = z.discriminatedUnion("kind", [
     provider: z.string(),
     trackId: z.string(),
   }),
-  z.object({ kind: z.literal("channel"), channelUrl: z.string() }),
+  z.object({
+    kind: z.literal("channel"),
+    provider: z.string().optional(),
+    channelId: z.string().optional(),
+    channelUrl: z.string(),
+  }),
 ]);
 
 export { BlocklistEntrySchema, RuleDefaultsSchema };
