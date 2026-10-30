@@ -13,6 +13,9 @@ const idlePlayer: Player = {
   play: () => {},
   unmute: () => {},
   stop: () => {},
+  pause: () => {},
+  resume: () => {},
+  setVolume: () => {},
   attach: () => {},
 };
 

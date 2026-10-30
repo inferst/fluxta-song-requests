@@ -49,6 +49,9 @@ function requestSong() {
     play: (song) => played.push(song),
     unmute: () => {},
     stop: () => {},
+    pause: () => {},
+    resume: () => {},
+    setVolume: () => {},
     attach: (events) => {
       playerEvents = events;
     },

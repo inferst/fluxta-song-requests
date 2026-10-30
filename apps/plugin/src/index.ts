@@ -12,6 +12,10 @@ import {
 } from "song-requests-protocol";
 
 import { RequestSongAction } from "./actions/request-song";
+import { SkipAction } from "./actions/skip";
+import { PlaybackAction } from "./actions/playback";
+import { VolumeAction } from "./actions/volume";
+import { createPlaybackSources } from "./sources/playback";
 import {
   SONG_DROPPED_EVENT,
   SONG_ENDED_EVENT,
@@ -110,6 +114,11 @@ const stateSaveTimer = setInterval(() => {
 stateSaveTimer.unref();
 
 plugin.registerAction(new RequestSongAction(queue));
+plugin.registerAction(new SkipAction(queue));
+plugin.registerAction(new PlaybackAction(queue));
+plugin.registerAction(new VolumeAction(queue));
+for (const source of createPlaybackSources(queue))
+  plugin.registerSource(source);
 
 // Read by `status()` from the start — an editor may ask before the settings
 // have been read — so it starts out unknown.

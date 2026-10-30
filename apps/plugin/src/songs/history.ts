@@ -16,8 +16,8 @@ export const HISTORY_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 /** One Song that left the air. */
 export type HistoryEntry = {
   song: Song;
-  /** How it left the air; `skipped` comes with Skip (#10). */
-  how: "finished" | "failed";
+  /** How it left the air. */
+  how: "finished" | "failed" | "skipped";
   /** When it left the air, in ms since the epoch (`Date.now()`). */
   at: number;
 };

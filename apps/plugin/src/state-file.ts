@@ -46,12 +46,14 @@ const SongSchema = z.object({
 
 const HistoryEntrySchema = z.object({
   song: SongSchema,
-  how: z.enum(["finished", "failed"]),
+  how: z.enum(["finished", "failed", "skipped"]),
   at: z.number(),
 });
 
 const StateFileSchema = z.object({
   version: z.literal(STATE_VERSION),
+  isPaused: z.boolean().optional(),
+  volume: z.number().int().min(0).max(100).optional(),
   waiting: z.array(SongSchema),
   current: z
     .object({

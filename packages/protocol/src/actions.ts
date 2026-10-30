@@ -18,3 +18,7 @@ export type RequestSongSettings = {
 };
 
 export type { RequestSongOverrides, RuleOverride } from "./rules";
+
+export type PlaybackSettings = { mode?: "pause" | "resume" | "toggle" };
+export type VolumeSettings = { mode?: "set" | "change"; amount?: string };
+export type SkipSettings = Record<string, never>;

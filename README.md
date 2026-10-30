@@ -19,3 +19,26 @@ follow.
 
 Songs play one at a time, in the order they were requested. While no Player
 Page is open, they wait.
+
+## Playback controls
+
+- **Skip** ends the Current Song and moves to the next. Its Run Variable
+  `title` names the skipped Song; with nothing on air, it produces no title.
+- **Playback** pauses, resumes or toggles playback and returns `isPaused`.
+  Requests continue to queue while paused.
+- **Volume** sets a percentage or changes it by a signed amount, such as
+  `+10` or `-10`, and returns `volume`. The result is rounded to a whole
+  percentage within 0–100. Invalid amounts leave it unchanged.
+
+The volume and an explicit pause survive restarts and Player Page reconnects.
+A paused Song waits at its saved position until Playback resumes it.
+
+If/Else can read **Is Playing**, **Is Paused**, **Player Connected**,
+**Current Title**, **Current Requester**, **Queue Length**, **Queue Duration
+(Seconds)** and **Volume**. These are Query Sources: Fluxta asks for current
+state when evaluating a condition, including after a reconnect. Queue Length
+and Queue Duration count waiting Songs; unknown durations contribute nothing
+to the duration total. Is Playing is false until a Song goes on air, while
+paused, or with its Player disconnected. Is Paused records the streamer's
+explicit pause. An empty Current Title or Current Requester is an empty string.
+These sources do not provide automatic live button-title bindings.

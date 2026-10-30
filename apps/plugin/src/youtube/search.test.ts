@@ -29,6 +29,9 @@ const player: Player = {
   play: () => {},
   unmute: () => {},
   stop: () => {},
+  pause: () => {},
+  resume: () => {},
+  setVolume: () => {},
   attach: () => {},
 };
 

@@ -39,6 +39,10 @@ class FakePlayer implements Player {
     this.told.push("stop");
   }
 
+  pause() {}
+  resume() {}
+  setVolume() {}
+
   attach(events: PlayerEvents) {
     this.#events = events;
   }
@@ -110,11 +114,11 @@ function songQueue(...providers: Provider[]) {
 
 type HeardSongEvent =
   | { event: "started"; song: Song }
-  | { event: "ended"; song: Song; how: "finished" | "failed" }
+  | { event: "ended"; song: Song; how: "finished" | "failed" | "skipped" }
   | {
       event: "dropped";
       song: Song;
-      why: "unavailable" | "too-long" | "too-short";
+      why: "unavailable" | "too-long" | "too-short" | "removed";
     };
 
 function eventQueue(...providers: Provider[]) {
@@ -466,7 +470,7 @@ describe("the Start Check", () => {
     player.ready = false;
     player.connect();
 
-    expect(player.told.at(-1)).toBe("play one");
+    expect(player.told.at(-1)).toBe("play one at 0");
   });
 
   it("drops a Song its Player refuses at load, and plays the next", async () => {
@@ -516,6 +520,8 @@ describe("the State file's snapshot", () => {
     vi.advanceTimersByTime(42_000);
 
     expect(queue.snapshot()).toEqual({
+      isPaused: false,
+      volume: 100,
       waiting: [expect.objectContaining({ id: "song-2", title: "two" })],
       current: {
         song: expect.objectContaining({ id: "song-1", title: "one" }),

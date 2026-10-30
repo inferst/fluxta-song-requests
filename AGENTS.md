@@ -87,6 +87,7 @@ player-page/
   server.ts         the page, its scripts and its WebSocket on both loopbacks; 403 without the Player Key
   player-key.ts     the Player Key, made once and kept in Plugin settings
 actions/            one StandaloneAction per manifest Action, file named after its `type`; templated.ts reads TemplateField settings
+sources/            Standalone Query Sources reading the Song Queue's current playback state through registerSource; no pushed Plugin Variables
 ```
 
 A Request travels `actions/request-song.ts` → `SongQueue.request` → the Provider that claims it (`claims`, else the first, the default one) → `resolve`, and the accepted Song waits until its Provider's Player is `ready`. The Player reports back through `PlayerEvents`. A Song whose duration is not known — one accepted without the API Key — has its Start Check: it is played muted, unmuted once its Player reports a duration (`loaded`), and dropped unheard when the Player reports none (a live stream). It waits for that as long as it takes: a Song buffering through a network drop is not failing (spike #3). `index.ts` sends every open editor the Player Page's address, whether one is connected, the API Key's state (masked, never the key) and the Region; the Plugin Editor changes the key and the Region by messages, and the sidecar writes them into Plugin settings.
@@ -106,6 +107,7 @@ A Request travels `actions/request-song.ts` → `SongQueue.request` → the Prov
 - **Naming in the manifest** ([manifest reference](https://fluxta.app/docs/plugins/reference/manifest)): every kind — an Action `type` — is kebab-case (`request-song`); every key — a produced value, a settings field — is camelCase (`songId`).
 - **Nothing above the Provider seam knows YouTube** (ADR-0003). The Song Queue, the Actions and the Events deal in Tracks and Songs; a video id, oEmbed or anything else YouTube's stays under `youtube/` and `player-page/`. The tests' fake second Provider (`songs/song-queue.test.ts`) is what keeps it so — a change that needs YouTube there belongs behind the seam.
 - **A Player holds no queue.** The Song Queue hands it the next Song only when the Current Song is over; never pass it a list.
+- **Playback state is queried.** The eight playback Value Sources use `registerSource`, declared as `resolve: "query"` and `context: "standalone"`. Each reads current local state; no host reconnect callback or `setVariable` replay is needed. They do not provide automatic live button-title bindings.
 - **The Player Page's address is `localhost`, never an IP.** YouTube refuses to play on a page whose host is an IP address (error 150, spike #3), so the server listens on both loopbacks and every address it shows says `localhost`. The page stays on this computer (ADR-0001).
 - **The Player Page shows the player and nothing else, and must stay in view.** YouTube's policies forbid a player that is not shown and anything drawn over it (ADR-0001). Information about the Song belongs on another page, not on this one.
 - **The Player Key never reaches a log line or an error message.** It appears only in the Player Page's address, shown in the Plugin Editor to be copied into OBS.

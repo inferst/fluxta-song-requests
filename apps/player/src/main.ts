@@ -8,7 +8,8 @@ import {
 /**
  * The Player Page: YouTube's IFrame Player and nothing else in view
  * (ADR-0001). It does only what the sidecar says — load a video, which plays
- * at once, muted for a Song's Start Check; unmute it; stop — and reports how
+ * at once unless paused, muted for a Song's Start Check; unmute it; pause,
+ * resume, change volume or stop — and reports how
  * that went. The Song Queue lives in the sidecar.
  */
 
@@ -32,6 +33,8 @@ let player: YT.Player | undefined;
 let apiReady = false;
 /** The player answers calls only once its own `onReady` has fired. */
 let playerReady = false;
+let paused = false;
+let volume = 100;
 /** The Song the page plays, or is about to once the API has loaded. */
 let current:
   | {
@@ -56,14 +59,18 @@ function send(message: PageMessage): void {
 
 function start(target: YT.Player): void {
   if (!current) return;
+  target.setVolume(volume);
   // A Song at its Start Check must not be heard before the sidecar says so —
   // muted before it loads, not after.
   if (current.muted) target.mute();
   else target.unMute();
-  target.loadVideoById({
+  const video = {
     videoId: current.videoId,
     startSeconds: current.startAt,
-  });
+  };
+  // A restored pause must not briefly play with sound while loading.
+  if (paused) target.cueVideoById(video);
+  else target.loadVideoById(video);
 }
 
 /**
@@ -130,7 +137,10 @@ function load(
         start(event.target);
       },
       onStateChange: (event) => {
-        if (event.data === PLAYING) report();
+        if (event.data === PLAYING) {
+          if (paused) event.target.pauseVideo();
+          else report();
+        }
         if (event.data === ENDED && current) {
           send({ event: "ended", songId: current.songId });
         }
@@ -153,7 +163,9 @@ function unmute(songId: string): void {
   if (current?.songId !== songId) return;
   current.muted = false;
   if (!playerReady) return;
-  player?.seekTo(0, true);
+  if (paused)
+    player?.cueVideoById({ videoId: current.videoId, startSeconds: 0 });
+  else player?.seekTo(0, true);
   player?.unMute();
 }
 
@@ -166,6 +178,8 @@ function stop(): void {
 function obey(message: SidecarMessage): void {
   switch (message.event) {
     case "load":
+      paused = message.paused ?? false;
+      volume = message.volume ?? volume;
       load(message.songId, message.videoId, message.muted, message.startAt);
       return;
     case "unmute":
@@ -173,6 +187,19 @@ function obey(message: SidecarMessage): void {
       return;
     case "stop":
       stop();
+      return;
+    case "pause":
+      paused = true;
+      clearTimeout(retry);
+      if (playerReady) player?.pauseVideo();
+      return;
+    case "resume":
+      paused = false;
+      if (playerReady && current) player?.playVideo();
+      return;
+    case "volume":
+      volume = message.volume;
+      if (playerReady) player?.setVolume(volume);
       return;
   }
 }
@@ -215,6 +242,7 @@ function connect(delay = RECONNECT_MS.first): void {
       replaced();
       return;
     }
+    stop();
     // The plugin restarting, or Fluxta closed: try again, more slowly each
     // time it fails, at once after a connection that worked.
     const next = opened ? RECONNECT_MS.first : delay;

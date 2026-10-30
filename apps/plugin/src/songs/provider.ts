@@ -84,6 +84,8 @@ export type ResolveOptions = {
 export interface PlayerEvents {
   /** It can play now — a Player Page connected. */
   ready(): void;
+  /** Its Player Page went away; playback waits at the last position. */
+  disconnected(): void;
   /**
    * The Song plays — muted, if it was played so — and is this long, in
    * seconds; `undefined` for a live stream, which has no end.
@@ -95,6 +97,13 @@ export interface PlayerEvents {
   failed(songId: string): void;
 }
 
+export type PlayOptions = {
+  muted: boolean;
+  startAt?: number;
+  paused?: boolean;
+  volume?: number;
+};
+
 /** Where a Provider's Songs play. It is told one Song at a time and holds no queue. */
 export interface Player {
   /** Whether a Song handed over now would play. */
@@ -103,12 +112,17 @@ export interface Player {
    * Plays the Song in place of whatever was on. A muted Song is not heard
    * until `unmute` — its Start Check. `startAt` is seconds in to start at:
    * the Current Song goes on from where a restart found it (ADR-0002).
+   * A pause and volume accompany a load so a new Player Page applies them
+   * before anything is heard.
    */
-  play(song: Song, options: { muted: boolean; startAt?: number }): void;
+  play(song: Song, options: PlayOptions): void;
   /** Lets the Song on air be heard; a Song that is no longer on air stays as it is. */
   unmute(songId: string): void;
   /** Stops whatever is on; nothing plays until the next `play`. */
   stop(): void;
+  pause(): void;
+  resume(): void;
+  setVolume(volume: number): void;
   /** How the Song Queue hears from it. */
   attach(events: PlayerEvents): void;
 }

@@ -4,7 +4,12 @@ import {
   type SidecarMessage,
 } from "song-requests-protocol";
 
-import type { Player, PlayerEvents, Song } from "../songs/provider";
+import type {
+  Player,
+  PlayerEvents,
+  PlayOptions,
+  Song,
+} from "../songs/provider";
 
 /** One Player Page's WebSocket, as narrow as the Player needs it. */
 export interface PageSocket {
@@ -51,6 +56,7 @@ export class PagePlayer implements Player {
     page.onClose(() => {
       if (this.#page !== page) return;
       this.#page = undefined;
+      this.#events?.disconnected();
       this.#tellConnection();
     });
 
@@ -59,16 +65,15 @@ export class PagePlayer implements Player {
     this.#events?.ready();
   }
 
-  play(
-    song: Song,
-    { muted, startAt }: { muted: boolean; startAt?: number },
-  ): void {
+  play(song: Song, { muted, startAt, paused, volume }: PlayOptions): void {
     this.#send({
       event: "load",
       songId: song.id,
       videoId: song.trackId,
       muted,
       startAt: startAt ?? 0,
+      ...(paused === undefined ? {} : { paused }),
+      ...(volume === undefined ? {} : { volume }),
     });
   }
 
@@ -78,6 +83,16 @@ export class PagePlayer implements Player {
 
   stop(): void {
     this.#send({ event: "stop" });
+  }
+
+  pause(): void {
+    this.#send({ event: "pause" });
+  }
+  resume(): void {
+    this.#send({ event: "resume" });
+  }
+  setVolume(volume: number): void {
+    this.#send({ event: "volume", volume });
   }
 
   #send(message: SidecarMessage): void {

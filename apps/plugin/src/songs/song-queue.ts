@@ -42,6 +42,7 @@ type CurrentSong = {
   atStartCheck: boolean;
   /** It has been heard, so its end is Song Ended rather than Song Dropped. */
   started: boolean;
+  loaded?: boolean;
   /** When it began to play, by `Date.now()`; unset until its Player says so. */
   since?: number;
   /** How far it has played, in seconds, as of `since`. */
@@ -55,6 +56,8 @@ type CurrentSong = {
 
 /** The Song Queue as the State file keeps it (ADR-0002). */
 export type SongQueueSnapshot = {
+  isPaused?: boolean;
+  volume?: number;
   waiting: Song[];
   current?: {
     song: Song;
@@ -67,19 +70,6 @@ export type SongQueueSnapshot = {
   /** The Songs that left the air, newest first: at most 200, none older than 30 days. */
   history: HistoryEntry[];
 };
-
-/**
- * Seconds left of the Current Song, if its duration is known. Away from its
- * Player it has all of them: it plays again from its start.
- */
-function timeLeft(
-  { song, since }: CurrentSong,
-  player: Player | undefined,
-): number | undefined {
-  if (song.duration === undefined) return undefined;
-  if (since === undefined || !player?.ready) return song.duration;
-  return Math.max(0, song.duration - (Date.now() - since) / 1000);
-}
 
 /**
  * The plugin's single Song Queue: Songs waiting in order of arrival, played
@@ -95,15 +85,20 @@ export class SongQueue {
     blocklist: () => BlocklistEntry[];
   };
   readonly #onStarted?: (song: Song) => void;
-  readonly #onEnded?: (song: Song, how: "finished" | "failed") => void;
+  readonly #onEnded?: (
+    song: Song,
+    how: "finished" | "failed" | "skipped",
+  ) => void;
   readonly #onDropped?: (
     song: Song,
-    why: "unavailable" | "too-long" | "too-short",
+    why: "unavailable" | "too-long" | "too-short" | "removed",
   ) => void;
   readonly #onChange?: () => void;
   readonly #waiting: Song[] = [];
   #current?: CurrentSong;
   #history: HistoryEntry[];
+  #paused: boolean;
+  #volume: number;
 
   constructor({
     providers,
@@ -130,10 +125,10 @@ export class SongQueue {
       blocklist: () => BlocklistEntry[];
     };
     onStarted?: (song: Song) => void;
-    onEnded?: (song: Song, how: "finished" | "failed") => void;
+    onEnded?: (song: Song, how: "finished" | "failed" | "skipped") => void;
     onDropped?: (
       song: Song,
-      why: "unavailable" | "too-long" | "too-short",
+      why: "unavailable" | "too-long" | "too-short" | "removed",
     ) => void;
     /** The queue changed in a way the State file should keep. */
     onChange?: () => void;
@@ -148,6 +143,8 @@ export class SongQueue {
     this.#onEnded = onEnded;
     this.#onDropped = onDropped;
     this.#onChange = onChange;
+    this.#paused = initial?.isPaused ?? false;
+    this.#volume = initial?.volume ?? 100;
 
     this.#waiting.push(...(initial?.waiting ?? []));
     // Entries older than the History keeps are dropped on the way in, so a
@@ -170,6 +167,7 @@ export class SongQueue {
     for (const provider of providers) {
       provider.player.attach({
         ready: () => this.#resume(provider),
+        disconnected: () => this.#disconnected(provider),
         loaded: (songId, duration) => this.#loaded(songId, duration),
         ended: (songId) => this.#ended(songId),
         failed: (songId) => this.#failed(songId),
@@ -181,6 +179,8 @@ export class SongQueue {
   snapshot(): SongQueueSnapshot {
     const current = this.#current;
     return {
+      isPaused: this.#paused,
+      volume: this.#volume,
       waiting: [...this.#waiting],
       current: current && {
         song: current.song,
@@ -199,7 +199,9 @@ export class SongQueue {
    */
   #positionOf(current: CurrentSong): number {
     const playing =
-      current.since !== undefined && this.#playerOf(current.song)?.ready;
+      !this.#paused &&
+      current.since !== undefined &&
+      this.#playerOf(current.song)?.ready;
     return (
       current.position + (playing ? (Date.now() - current.since!) / 1000 : 0)
     );
@@ -210,11 +212,26 @@ export class SongQueue {
    * Song again if it is its own, or the next Song if nothing is on air.
    */
   #resume(provider: Provider): void {
+    provider.player.setVolume(this.#volume);
     if (this.#current?.song.provider === provider.id) {
+      if (this.#current.started && this.#current.resumeAt === undefined) {
+        this.#current.resumeAt = this.#positionOf(this.#current);
+      }
       this.#start(this.#current, provider.player);
       return;
     }
     this.#advance();
+  }
+
+  #disconnected(provider: Provider): void {
+    const current = this.#current;
+    if (current?.song.provider !== provider.id) return;
+    if (current.since !== undefined && !this.#paused) {
+      current.position += (Date.now() - current.since) / 1000;
+    }
+    current.since = undefined;
+    current.loaded = false;
+    this.#onChange?.();
   }
 
   /**
@@ -247,8 +264,9 @@ export class SongQueue {
       this.#playerOf(current.song)?.unmute(songId);
     }
 
-    current.since = Date.now();
-    if (!current.started) {
+    current.loaded = true;
+    if (!this.#paused) current.since ??= Date.now();
+    if (!current.started && !this.#paused) {
       current.started = true;
       this.#onStarted?.(current.song);
     }
@@ -263,11 +281,7 @@ export class SongQueue {
       this.#drop(current, false);
       return;
     }
-    this.#current = undefined;
-    this.#recordHowItLeft(current.song, "finished");
-    this.#onEnded?.(current.song, "finished");
-    this.#onChange?.();
-    this.#advance();
+    this.#finish(current, "finished");
   }
 
   /** A Player error drops a Song before it is heard, or fails it on air. */
@@ -278,15 +292,21 @@ export class SongQueue {
       this.#drop(current, false);
       return;
     }
+    this.#finish(current, "failed");
+  }
+
+  /** Every heard Song leaves the air through the same History and Event ordering. */
+  #finish(current: CurrentSong, how: HistoryEntry["how"], stop = false): void {
     this.#current = undefined;
-    this.#recordHowItLeft(current.song, "failed");
-    this.#onEnded?.(current.song, "failed");
+    if (stop) this.#playerOf(current.song)?.stop();
+    this.#recordHowItLeft(current.song, how);
+    this.#onEnded?.(current.song, how);
     this.#onChange?.();
     this.#advance();
   }
 
   /** A Song that was heard enters the History, newest first. */
-  #recordHowItLeft(song: Song, how: "finished" | "failed"): void {
+  #recordHowItLeft(song: Song, how: "finished" | "failed" | "skipped"): void {
     this.#history = recordInHistory(this.#history, {
       song,
       how,
@@ -298,7 +318,7 @@ export class SongQueue {
   #drop(
     current: CurrentSong,
     stop: boolean,
-    why: "unavailable" | "too-long" | "too-short" = "unavailable",
+    why: "unavailable" | "too-long" | "too-short" | "removed" = "unavailable",
   ): void {
     this.#current = undefined;
     if (stop) this.#playerOf(current.song)?.stop();
@@ -309,7 +329,7 @@ export class SongQueue {
 
   /** Puts the next Song on air, if its Player can play it now. */
   #advance(): void {
-    if (this.#current) return;
+    if (this.#current || this.#paused) return;
     const next = this.#waiting[0];
     const player = next && this.#playerOf(next);
     if (!player?.ready) return;
@@ -329,22 +349,113 @@ export class SongQueue {
    * the State file brings a heard Song back (ADR-0002), else from its start.
    */
   #start(current: CurrentSong, player: Player): void {
+    current.loaded = false;
     current.since = undefined;
     if (current.resumeAt !== undefined) {
       current.position = current.resumeAt;
       player.play(current.song, {
         muted: current.atStartCheck,
         startAt: current.resumeAt,
+        paused: this.#paused,
+        volume: this.#volume,
       });
       current.resumeAt = undefined;
       return;
     }
     current.position = 0;
-    player.play(current.song, { muted: current.atStartCheck });
+    player.play(current.song, {
+      muted: current.atStartCheck,
+      paused: this.#paused,
+      volume: this.#volume,
+    });
   }
 
   #playerOf(song: Song) {
     return this.#providers.find((p) => p.id === song.provider)?.player;
+  }
+
+  /** Ends the Current Song; one still at its Start Check was never heard. */
+  skip(): Song | undefined {
+    const current = this.#current;
+    if (!current) return undefined;
+    if (!current.started) {
+      this.#drop(current, true, "removed");
+    } else {
+      this.#finish(current, "skipped", true);
+    }
+    return current.song;
+  }
+
+  /** The explicit pause is independent of whether a Player is connected. */
+  playback(mode: "pause" | "resume" | "toggle"): boolean {
+    const paused =
+      mode === "pause"
+        ? true
+        : mode === "resume"
+          ? false
+          : mode === "toggle"
+            ? !this.#paused
+            : this.#paused;
+    if (paused === this.#paused) return paused;
+    const current = this.#current;
+    if (current && paused) {
+      current.position = this.#positionOf(current);
+      current.since = undefined;
+    }
+    this.#paused = paused;
+    if (current) {
+      const player = this.#playerOf(current.song);
+      if (paused) player?.pause();
+      else {
+        player?.resume();
+        if (current.loaded && player?.ready) {
+          current.since = Date.now();
+          if (!current.started) {
+            current.started = true;
+            this.#onStarted?.(current.song);
+          }
+        }
+      }
+    }
+    this.#onChange?.();
+    if (!paused) this.#advance();
+    return paused;
+  }
+
+  get volume(): number {
+    return this.#volume;
+  }
+
+  /** State read by Standalone Query Sources; waiting durations exclude the Current Song. */
+  status() {
+    const current = this.#current;
+    return {
+      isPlaying: Boolean(
+        current?.started &&
+        current.loaded &&
+        !this.#paused &&
+        this.#playerOf(current.song)?.ready,
+      ),
+      isPaused: this.#paused,
+      playerConnected: this.#providers.some(({ player }) => player.ready),
+      currentTitle: current?.song.title ?? "",
+      currentRequester: current?.song.requesterName ?? "",
+      queueLength: this.#waiting.length,
+      queueDuration: this.#waiting.reduce(
+        (seconds, song) => seconds + (song.duration ?? 0),
+        0,
+      ),
+      volume: this.#volume,
+    };
+  }
+
+  setVolume(value: number): void {
+    if (!Number.isFinite(value)) return;
+    const volume = Math.round(Math.max(0, Math.min(100, value)));
+    if (volume === this.#volume) return;
+    this.#volume = volume;
+    for (const { player } of this.#providers) player.setVolume(volume);
+    this.#onChange?.();
   }
 
   /** Seconds until a waiting Song should start, if every duration it needs is known. */
@@ -352,9 +463,9 @@ export class SongQueue {
     let seconds = 0;
 
     if (this.#current) {
-      const left = timeLeft(this.#current, this.#playerOf(this.#current.song));
-      if (left === undefined) return undefined;
-      seconds += left;
+      const duration = this.#current.song.duration;
+      if (duration === undefined) return undefined;
+      seconds += Math.max(0, duration - this.#positionOf(this.#current));
     }
 
     for (const ahead of this.#waiting) {
