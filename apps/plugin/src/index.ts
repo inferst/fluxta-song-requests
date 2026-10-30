@@ -30,6 +30,7 @@ import { StateFile } from "./state-file";
 import { DataApi } from "./youtube/data-api";
 import { createYouTubeProvider } from "./youtube/provider";
 import { systemRegion } from "./youtube/region";
+import { SearchCache } from "./youtube/search-cache";
 
 /** Fixed, so the address in OBS stays the same; the Settings change it later (#15). */
 const PLAYER_PORT = 29362;
@@ -50,17 +51,21 @@ const chosenRegion = () =>
 
 const pagePlayer = new PagePlayer();
 const dataApi = new DataApi({ fetch });
+
+// The Song Queue and search cache share the State file (ADR-0002).
+const stateFile = new StateFile();
+const restored = await stateFile.load();
+const searchCache = new SearchCache({
+  initial: restored.snapshot?.searchCache,
+  onChange: saveState,
+});
 const youtube = createYouTubeProvider({
   fetch,
   player: pagePlayer,
   dataApi,
   region: () => chosenRegion() ?? SYSTEM_REGION,
+  searchCache,
 });
-
-// The Song Queue comes back from the State file (ADR-0002); a file that could
-// not be read was moved aside, and the Plugin Editor says so.
-const stateFile = new StateFile();
-const restored = await stateFile.load();
 
 const queue = new SongQueue({
   providers: [youtube],
@@ -91,7 +96,7 @@ const queue = new SongQueue({
  */
 function saveState(): void {
   stateFile
-    .save(queue.snapshot())
+    .save({ ...queue.snapshot(), searchCache: searchCache.snapshot() })
     .catch(() =>
       console.error("The Song Queue's State file could not be written"),
     );

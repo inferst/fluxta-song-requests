@@ -11,6 +11,7 @@ import type {
   RefusalReason,
   RequestMetadata,
   Song,
+  Track,
 } from "./provider";
 import { recordInHistory, trimHistory, type HistoryEntry } from "./history";
 import { checkRules, durationBoundsOf, resolveRules } from "./rules";
@@ -377,26 +378,30 @@ export class SongQueue {
   ): Promise<RequestAnswer> {
     const provider =
       this.#providers.find((p) => p.claims(request)) ?? this.#providers[0];
-    const resolution = await provider.resolve(request);
-
-    if (resolution.kind === "refused") {
-      return resolution;
-    }
-
-    // The Rules run over the resolved track, above the Provider seam, in
-    // the table's order; a step's Overrides win over the Defaults.
     const rules = resolveRules(options.overrides, this.#rules.defaults());
-    const reason = checkRules(rules, {
-      track: resolution.track,
-      requester: {
-        requesterPlatform: metadata.requesterPlatform,
-        requesterId: metadata.requesterId,
-      },
-      waiting: this.#waiting,
-      current: this.#current?.song,
-      history: this.#history,
-      blocklist: this.#rules.blocklist(),
+    // A search tries candidates through the same Rules as a link. The
+    // Provider knows no queue or Rules, only how to ask whether a track passes.
+    const refusalOf = (track: Track) =>
+      checkRules(rules, {
+        track,
+        requester: {
+          requesterPlatform: metadata.requesterPlatform,
+          requesterId: metadata.requesterId,
+        },
+        waiting: this.#waiting,
+        current: this.#current?.song,
+        history: this.#history,
+        blocklist: this.#rules.blocklist(),
+      });
+    const resolution = await provider.resolve(request, {
+      musicOnly: rules.musicOnly,
+      refusalOf,
     });
+
+    if (resolution.kind === "refused") return resolution;
+
+    // Another Request may have changed the Song Queue while this one resolved.
+    const reason = refusalOf(resolution.track);
     if (reason) {
       return { kind: "refused", reason };
     }
@@ -413,6 +418,9 @@ export class SongQueue {
     this.#advance();
 
     const position = this.#waiting.indexOf(song) + 1;
+    // Advancing saves a Song that went on air; a waiting Song needs saving
+    // too, including when no Player Page has connected yet.
+    if (position > 0) this.#onChange?.();
     return {
       kind: "accepted",
       song,

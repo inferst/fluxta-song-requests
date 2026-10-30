@@ -545,6 +545,24 @@ describe("the State file's snapshot", () => {
     expect(changes).toEqual(["changed", "changed", "changed"]);
   });
 
+  it("saves each waiting Song even with no Player Page connected", async () => {
+    const { provider } = fakeProvider("fake");
+    const saved: SongQueueSnapshot[] = [];
+    let next = 0;
+    const queue = new SongQueue({
+      providers: [provider],
+      newId: () => `song-${++next}`,
+      onChange: () => saved.push(queue.snapshot()),
+    });
+
+    await queue.request("fake:one@200");
+    await queue.request("fake:two@100");
+
+    expect(
+      saved.map((snapshot) => snapshot.waiting.map((song) => song.title)),
+    ).toEqual([["one"], ["one", "two"]]);
+  });
+
   it("brings the Song Queue back as it was", async () => {
     const { provider, player } = fakeProvider("fake");
     const queue = songQueue(provider);

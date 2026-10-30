@@ -74,8 +74,9 @@ songs/
   history.ts        the History: the Songs that left the air, newest first, at most 200 and none older than 30 days
 youtube/
   link.ts           a Request that is one YouTube link → its video id
-  provider.ts       the YouTube Provider: a link checked through the Data API with a usable API Key, else through oEmbed; search words refused
-  data-api.ts       `videos.list` with the API Key, and what YouTube said of the key: refused until saved again, units spent until the quota reset
+  provider.ts       the YouTube Provider: links through the Data API or oEmbed; search candidates checked for Playability and through the Song Queue's Rules callback
+  data-api.ts       `videos.list` and `search.list` with the API Key; refused keys and separate daily units and Search Queries quotas
+  search-cache.ts   normalized search words to the chosen video id, kept for 7 days in the State file; every hit is checked afresh
   quota-reset.ts    when YouTube resets its daily quotas: midnight Pacific
   playability.ts    a `videos.list` item → a track with its duration, or the Playability Refusal
   oembed.ts         a link checked without the key: missing, not embeddable, else its title and channel
