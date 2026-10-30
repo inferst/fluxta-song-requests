@@ -22,6 +22,8 @@ export type Video = {
     title?: string;
     channelId?: string;
     channelTitle?: string;
+    /** YouTube's category; `10` is Music, what Music only checks. */
+    categoryId?: string;
     /** `none`, or `live` / `upcoming` for a live stream or a premiere. */
     liveBroadcastContent?: string;
   };

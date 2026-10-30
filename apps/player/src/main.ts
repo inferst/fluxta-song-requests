@@ -38,6 +38,8 @@ let current:
       songId: string;
       videoId: string;
       muted: boolean;
+      /** Seconds in to start at: the Song goes on from where a restart found it. */
+      startAt: number;
       /** Whether the sidecar has been told it plays, and how long it is. */
       reported: boolean;
       /** The duration first read at its Start Check, and when, to see whether it grows. */
@@ -58,7 +60,10 @@ function start(target: YT.Player): void {
   // muted before it loads, not after.
   if (current.muted) target.mute();
   else target.unMute();
-  target.loadVideoById(current.videoId);
+  target.loadVideoById({
+    videoId: current.videoId,
+    startSeconds: current.startAt,
+  });
 }
 
 /**
@@ -98,8 +103,13 @@ function report(): void {
   send({ event: "loaded", songId: current.songId, duration, live });
 }
 
-function load(songId: string, videoId: string, muted: boolean): void {
-  current = { songId, videoId, muted, reported: false };
+function load(
+  songId: string,
+  videoId: string,
+  muted: boolean,
+  startAt: number,
+): void {
+  current = { songId, videoId, muted, startAt, reported: false };
   clearTimeout(retry);
   if (!apiReady) return;
 
@@ -156,7 +166,7 @@ function stop(): void {
 function obey(message: SidecarMessage): void {
   switch (message.event) {
     case "load":
-      load(message.songId, message.videoId, message.muted);
+      load(message.songId, message.videoId, message.muted, message.startAt);
       return;
     case "unmute":
       unmute(message.songId);
@@ -216,7 +226,9 @@ function connect(delay = RECONNECT_MS.first): void {
 
 window.onYouTubeIframeAPIReady = () => {
   apiReady = true;
-  if (current) load(current.songId, current.videoId, current.muted);
+  if (current) {
+    load(current.songId, current.videoId, current.muted, current.startAt);
+  }
 };
 
 const api = document.createElement("script");

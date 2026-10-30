@@ -2,7 +2,8 @@
   "dependencies": {
     "@fluxta/sdk": "catalog:",
     "song-requests-protocol": "workspace:*",
-    "ws": "catalog:"
+    "ws": "catalog:",
+    "zod": "catalog:"
   },
   "devDependencies": {
     "@types/node": "catalog:",

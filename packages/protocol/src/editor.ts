@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { isRegion } from "./regions";
+import { BlocklistEntrySchema, RuleDefaultsSchema } from "./rules";
 
 /**
  * The messages between the sidecar and its editors.
@@ -38,6 +39,17 @@ const PluginStatusSchema = z.object({
     /** The computer's, from its locale. */
     system: RegionSchema,
   }),
+  stateFile: z.object({
+    /**
+     * `true` once the State file could not be read and was moved aside, so
+     * the plugin started with an empty Song Queue (ADR-0002).
+     */
+    recovered: z.boolean(),
+  }),
+  /** The Rules' Defaults as they stand now — #1's where the streamer set none. */
+  defaults: RuleDefaultsSchema,
+  /** What the streamer never wants played; adding comes with Block Song. */
+  blocklist: z.array(BlocklistEntrySchema),
 });
 
 const EditorMessageSchema = z.discriminatedUnion("event", [
@@ -49,6 +61,19 @@ const EditorMessageSchema = z.discriminatedUnion("event", [
   z.object({ event: z.literal("set-api-key"), apiKey: z.string().max(200) }),
   /** A Region the streamer picked, or `null` to follow the computer's. */
   z.object({ event: z.literal("set-region"), region: RegionSchema.nullable() }),
+  /**
+   * The Rules' Defaults as the streamer set them; what is absent keeps the
+   * value it has, #1's where it never had one.
+   */
+  z.object({
+    event: z.literal("set-rule-defaults"),
+    defaults: RuleDefaultsSchema.partial(),
+  }),
+  /** Take one entry out of the Blocklist; adding comes with Block Song (#11). */
+  z.object({
+    event: z.literal("remove-blocklist-entry"),
+    entry: BlocklistEntrySchema,
+  }),
 ]);
 
 const PluginMessageSchema = z.discriminatedUnion("event", [

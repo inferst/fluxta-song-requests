@@ -59,12 +59,16 @@ export class PagePlayer implements Player {
     this.#events?.ready();
   }
 
-  play(song: Song, { muted }: { muted: boolean }): void {
+  play(
+    song: Song,
+    { muted, startAt }: { muted: boolean; startAt?: number },
+  ): void {
     this.#send({
       event: "load",
       songId: song.id,
       videoId: song.trackId,
       muted,
+      startAt: startAt ?? 0,
     });
   }
 

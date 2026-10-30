@@ -38,13 +38,19 @@ describe("the Player Page's messages", () => {
         songId: "s1",
         videoId: "dQw4w9WgXcQ",
         muted: true,
+        startAt: 42,
       }),
     ).toBe(true);
     expect(isSidecarMessage({ event: "unmute", songId: "s1" })).toBe(true);
     expect(isSidecarMessage({ event: "stop" })).toBe(true);
 
     expect(
-      isSidecarMessage({ event: "load", songId: "s1", videoId: "dQw4w9WgXcQ" }),
+      isSidecarMessage({
+        event: "load",
+        songId: "s1",
+        videoId: "dQw4w9WgXcQ",
+        muted: true,
+      }),
     ).toBe(false);
     expect(isSidecarMessage({ event: "unmute" })).toBe(false);
     expect(isSidecarMessage({ event: "ended", songId: "s1" })).toBe(false);

@@ -21,6 +21,12 @@ export type Track = {
    * does, at the Song's Start Check.
    */
   duration?: number;
+  /**
+   * Whether the Provider counts it as music — YouTube's category 10, known
+   * only with the API Key. Music only is not checked where it is unknown
+   * (ADR-0005).
+   */
+  music?: boolean;
 };
 
 /** Who a Request is from and the scenario's opaque label for it. */
@@ -36,6 +42,12 @@ export type Song = Track &
   RequestMetadata & {
     /** The Song's own id, unique in the Song Queue and in the Song's Events. */
     id: string;
+    /**
+     * The duration bounds it was accepted with — its step's Overrides
+     * included. They travel with it and are checked at its Start Check,
+     * when its Player is the first to know how long it is (ADR-0005).
+     */
+    durationBounds?: { maxSeconds?: number; minSeconds?: number };
   };
 
 /** Why a Request did not become a Song. */
@@ -48,7 +60,16 @@ export type RefusalReason =
   | "no-api-key"
   | "api-key-invalid"
   | "quota-exhausted"
-  | "provider-unavailable";
+  | "provider-unavailable"
+  | "closed"
+  | "too-long"
+  | "too-short"
+  | "requester-limit"
+  | "queue-full"
+  | "already-queued"
+  | "recently-played"
+  | "blocked"
+  | "not-music";
 
 export type Resolution =
   { kind: "track"; track: Track } | { kind: "refused"; reason: RefusalReason };
@@ -74,9 +95,10 @@ export interface Player {
   readonly ready: boolean;
   /**
    * Plays the Song in place of whatever was on. A muted Song is not heard
-   * until `unmute` — its Start Check.
+   * until `unmute` — its Start Check. `startAt` is seconds in to start at:
+   * the Current Song goes on from where a restart found it (ADR-0002).
    */
-  play(song: Song, options: { muted: boolean }): void;
+  play(song: Song, options: { muted: boolean; startAt?: number }): void;
   /** Lets the Song on air be heard; a Song that is no longer on air stays as it is. */
   unmute(songId: string): void;
   /** Stops whatever is on; nothing plays until the next `play`. */
