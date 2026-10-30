@@ -76,7 +76,6 @@
       "type": "skip",
       "icon": "icons/skip.svg",
       "context": "standalone",
-      "editor": "editor/skip.html",
       "produces": [
         {
           "key": "title",

@@ -56,7 +56,7 @@ Editor-only and Player Page-only rebuilds restart nothing — reopen the editor 
 ### Packages
 
 - `apps/plugin` (`song-requests-plugin`) — the Plugin sidecar: the Node.js process Fluxta starts. tsdown bundles it, `ws` included, into `dist/song-requests/index.mjs` and copies `manifest.json` and `icons/` beside it.
-- `apps/editor` (`song-requests-editor`) — the editors, React + Vite + Tailwind, built into `dist/song-requests/editor/`: the Plugin Editor (`plugin.html`, the plugin's own tab in Fluxta) and one Action Editor per Action.
+- `apps/editor` (`song-requests-editor`) — the editors, React + Vite + Tailwind, built into `dist/song-requests/editor/`: the Plugin Editor (`plugin.html`, the plugin's own tab in Fluxta) and an Action Editor for each Action with settings. Actions without settings, such as Skip, omit the editor.
 - `apps/player` (`song-requests-player`) — the Player Page, plain TypeScript + Vite, built into `dist/song-requests/player/` and served by the sidecar: YouTube's IFrame Player, filling the page, driven over a WebSocket.
 - `packages/protocol` (`song-requests-protocol`) — what the sidecar, the editors and the Player Page share: the editor ↔ sidecar messages (`editor.ts`), the Player Page ↔ sidecar messages (`page.ts`), each an object with an `event` discriminant checked with zod, every Action's settings type (`actions.ts`) and the Rules' shared types (`rules.ts`). Consumed as TypeScript source; it has no build.
 
@@ -103,7 +103,7 @@ A Request travels `actions/request-song.ts` → `SongQueue.request` → the Prov
 
 ## Key Conventions
 
-- **Manifest and code change together.** `manifest.json` declares every Action (with its `produces`), and the code registers exactly those, by the same `type` / `key`. Adding an Action means: its manifest entry, `apps/plugin/src/actions/<type>.ts` with its test, its registration in `index.ts`, its settings type in `song-requests-protocol`, `apps/editor/<type>.html`, `apps/editor/src/<type>/` and an icon in `icons/`.
+- **Manifest and code change together.** `manifest.json` declares every Action (with its `produces`), and the code registers exactly those, by the same `type` / `key`. Adding an Action means: its manifest entry, `apps/plugin/src/actions/<type>.ts` with its test, its registration in `index.ts`, its settings type in `song-requests-protocol` and an icon in `icons/`. An Action with settings also gets `apps/editor/<type>.html` and `apps/editor/src/<type>/`; an Action without settings omits the manifest's `editor` and has no editor page.
 - **Naming in the manifest** ([manifest reference](https://fluxta.app/docs/plugins/reference/manifest)): every kind — an Action `type` — is kebab-case (`request-song`); every key — a produced value, a settings field — is camelCase (`songId`).
 - **Nothing above the Provider seam knows YouTube** (ADR-0003). The Song Queue, the Actions and the Events deal in Tracks and Songs; a video id, oEmbed or anything else YouTube's stays under `youtube/` and `player-page/`. The tests' fake second Provider (`songs/song-queue.test.ts`) is what keeps it so — a change that needs YouTube there belongs behind the seam.
 - **A Player holds no queue.** The Song Queue hands it the next Song only when the Current Song is over; never pass it a list.
