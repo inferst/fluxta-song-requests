@@ -3,6 +3,36 @@ import { describe, expect, it } from "vitest";
 import { isPageMessage, isSidecarMessage } from "./page";
 
 describe("the Player Page's messages", () => {
+  it("checks playback and volume commands, including paused loads and silent volume", () => {
+    expect(isSidecarMessage({ event: "pause" })).toBe(true);
+    expect(isSidecarMessage({ event: "resume" })).toBe(true);
+    expect(isSidecarMessage({ event: "volume", volume: 0 })).toBe(true);
+    expect(
+      isSidecarMessage({
+        event: "load",
+        songId: "s1",
+        videoId: "video",
+        muted: false,
+        startAt: 12,
+        paused: true,
+        volume: 25,
+      }),
+    ).toBe(true);
+    for (const volume of [-1, 101, 1.5, "50", null]) {
+      expect(isSidecarMessage({ event: "volume", volume })).toBe(false);
+    }
+    expect(isSidecarMessage({ event: "volume" })).toBe(false);
+    expect(
+      isSidecarMessage({
+        event: "load",
+        songId: "s1",
+        videoId: "video",
+        muted: false,
+        startAt: 0,
+        paused: "true",
+      }),
+    ).toBe(false);
+  });
   it("accepts a page saying a Song plays, ended or could not play", () => {
     expect(
       isPageMessage({

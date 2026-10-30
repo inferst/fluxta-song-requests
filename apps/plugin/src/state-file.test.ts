@@ -6,6 +6,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import type { SongQueueSnapshot } from "./songs/song-queue";
 import { StateFile, stateFilePath } from "./state-file";
+import { SongQueue } from "./songs/song-queue";
+import { fakeProvider } from "./test-support/fake-provider";
 
 let dir: string;
 let file: string;
@@ -46,6 +48,42 @@ const snapshot: SongQueueSnapshot = {
 };
 
 describe("the State file", () => {
+  it("restores a pause, silent volume and skipped History without losing the Song Queue", async () => {
+    const { provider, player } = fakeProvider();
+    let id = 0;
+    const queue = new SongQueue({
+      providers: [provider],
+      newId: () => `${++id}`,
+    });
+    player.connect();
+    await queue.request("fake:first@100");
+    player.load();
+    await queue.request("fake:second@100");
+    queue.skip();
+    player.load();
+    queue.playback("pause");
+    queue.setVolume(0);
+    const saved = queue.snapshot();
+    await new StateFile(file).save(saved);
+    const loaded = await new StateFile(file).load();
+    expect(loaded.recovered).toBe(false);
+    const back = fakeProvider();
+    const restored = new SongQueue({
+      providers: [back.provider],
+      newId: () => "new",
+      initial: loaded.snapshot,
+    });
+    back.player.connect();
+    expect(restored.snapshot()).toMatchObject({
+      isPaused: true,
+      volume: 0,
+      history: [{ how: "skipped" }],
+    });
+    expect(back.player.played.at(-1)?.options).toMatchObject({
+      paused: true,
+      volume: 0,
+    });
+  });
   it("lives in Fluxta's per-user application data folder, in one of the plugin's own", () => {
     const at = stateFilePath();
 

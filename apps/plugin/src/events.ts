@@ -20,11 +20,11 @@ export type SongPayload = {
 };
 
 export type SongEndedPayload = SongPayload & {
-  how: "finished" | "failed";
+  how: "finished" | "failed" | "skipped";
 };
 
 export type SongDroppedPayload = SongPayload & {
-  why: "unavailable" | "too-long" | "too-short";
+  why: "unavailable" | "too-long" | "too-short" | "removed";
 };
 
 function toSongPayload(song: Song): SongPayload {

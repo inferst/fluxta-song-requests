@@ -3,7 +3,7 @@ import { z } from "zod";
 /**
  * The messages between the sidecar and the Player Page, over the page's own
  * WebSocket. The page does only what the sidecar says — load a video and
- * play it, unmute it, stop — and reports how that went; the Song Queue lives
+ * play it, unmute it, pause, resume, change volume or stop — and reports how that went; the Song Queue lives
  * in the sidecar.
  *
  * Every message is an object with an `event` discriminant, like the editor
@@ -29,9 +29,17 @@ const SidecarMessageSchema = z.discriminatedUnion("event", [
     videoId: z.string(),
     muted: z.boolean(),
     startAt: z.number(),
+    paused: z.boolean().optional(),
+    volume: z.number().int().min(0).max(100).optional(),
   }),
   z.object({ event: z.literal("unmute"), songId: z.string() }),
   z.object({ event: z.literal("stop") }),
+  z.object({ event: z.literal("pause") }),
+  z.object({ event: z.literal("resume") }),
+  z.object({
+    event: z.literal("volume"),
+    volume: z.number().int().min(0).max(100),
+  }),
 ]);
 
 const PageMessageSchema = z.discriminatedUnion("event", [

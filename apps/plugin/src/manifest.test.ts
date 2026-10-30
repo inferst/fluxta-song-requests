@@ -11,14 +11,23 @@ import {
   toSongStartedPayload,
 } from "./events";
 import type { Song } from "./songs/provider";
+import { SongQueue } from "./songs/song-queue";
+import { createPlaybackSources } from "./sources/playback";
+import { fakeProvider } from "./test-support/fake-provider";
 
-type ManifestField = { key: string; name: string; type: "string" | "number" };
+type ManifestField = {
+  key: string;
+  name: string;
+  type: "string" | "number" | "boolean";
+};
 
 /** Fluxta drops whatever the manifest does not declare, without a word. */
 const manifest = JSON.parse(
   readFileSync(new URL("../../../manifest.json", import.meta.url), "utf8"),
 ) as {
   events: { type: string; name: string; fields: ManifestField[] }[];
+  sources: (ManifestField & { resolve: string; context: string })[];
+  actions: { type: string; produces: ManifestField[] }[];
 };
 
 const songFields: ManifestField[] = [
@@ -54,6 +63,53 @@ const song: Song = {
 };
 
 describe("manifest.json", () => {
+  it("declares the eight registered playback values as Standalone Query Sources with matching types", async () => {
+    const { provider } = fakeProvider();
+    const queue = new SongQueue({ providers: [provider], newId: () => "song" });
+    const sources = createPlaybackSources(queue);
+    expect(manifest.sources.map(({ key, type }) => [key, type])).toEqual([
+      ["isPlaying", "boolean"],
+      ["isPaused", "boolean"],
+      ["playerConnected", "boolean"],
+      ["currentTitle", "string"],
+      ["currentRequester", "string"],
+      ["queueLength", "number"],
+      ["queueDuration", "number"],
+      ["volume", "number"],
+    ]);
+    expect(sources.map((source) => source.key)).toEqual(
+      manifest.sources.map((source) => source.key),
+    );
+    for (const declaration of manifest.sources) {
+      expect(declaration.resolve).toBe("query");
+      expect(declaration.context).toBe("standalone");
+      const source = sources.find((source) => source.key === declaration.key)!;
+      expect(typeof (await source.resolve({ itemId: 0, args: {} }))).toBe(
+        declaration.type,
+      );
+    }
+  });
+
+  it("declares each control Action's Run Variables", () => {
+    expect(
+      manifest.actions
+        .slice(1)
+        .map(({ type, produces }) => ({ type, produces })),
+    ).toEqual([
+      {
+        type: "skip",
+        produces: [{ key: "title", name: "Title", type: "string" }],
+      },
+      {
+        type: "playback",
+        produces: [{ key: "isPaused", name: "Is Paused", type: "boolean" }],
+      },
+      {
+        type: "volume",
+        produces: [{ key: "volume", name: "Volume", type: "number" }],
+      },
+    ]);
+  });
   it("declares exactly the Song Events the sidecar emits", () => {
     expect(manifest.events).toEqual([
       {

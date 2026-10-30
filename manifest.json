@@ -70,6 +70,47 @@
           "type": "number"
         }
       ]
+    },
+    {
+      "name": "Skip",
+      "type": "skip",
+      "icon": "icons/skip.svg",
+      "context": "standalone",
+      "produces": [
+        {
+          "key": "title",
+          "name": "Title",
+          "type": "string"
+        }
+      ]
+    },
+    {
+      "name": "Playback",
+      "type": "playback",
+      "icon": "icons/playback.svg",
+      "context": "standalone",
+      "editor": "editor/playback.html",
+      "produces": [
+        {
+          "key": "isPaused",
+          "name": "Is Paused",
+          "type": "boolean"
+        }
+      ]
+    },
+    {
+      "name": "Volume",
+      "type": "volume",
+      "icon": "icons/volume.svg",
+      "context": "standalone",
+      "editor": "editor/volume.html",
+      "produces": [
+        {
+          "key": "volume",
+          "name": "Volume",
+          "type": "number"
+        }
+      ]
     }
   ],
   "events": [
@@ -170,6 +211,64 @@
         { "key": "reference", "name": "Reference", "type": "string" },
         { "key": "why", "name": "Why", "type": "string" }
       ]
+    }
+  ],
+  "sources": [
+    {
+      "key": "isPlaying",
+      "name": "Is Playing",
+      "type": "boolean",
+      "resolve": "query",
+      "context": "standalone"
+    },
+    {
+      "key": "isPaused",
+      "name": "Is Paused",
+      "type": "boolean",
+      "resolve": "query",
+      "context": "standalone"
+    },
+    {
+      "key": "playerConnected",
+      "name": "Player Connected",
+      "type": "boolean",
+      "resolve": "query",
+      "context": "standalone"
+    },
+    {
+      "key": "currentTitle",
+      "name": "Current Title",
+      "type": "string",
+      "resolve": "query",
+      "context": "standalone"
+    },
+    {
+      "key": "currentRequester",
+      "name": "Current Requester",
+      "type": "string",
+      "resolve": "query",
+      "context": "standalone"
+    },
+    {
+      "key": "queueLength",
+      "name": "Queue Length",
+      "type": "number",
+      "resolve": "query",
+      "context": "standalone"
+    },
+    {
+      "key": "queueDuration",
+      "name": "Queue Duration (Seconds)",
+      "type": "number",
+      "resolve": "query",
+      "context": "standalone"
+    },
+    {
+      "key": "volume",
+      "name": "Volume",
+      "type": "number",
+      "resolve": "query",
+      "context": "standalone"
     }
   ]
 }

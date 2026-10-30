@@ -40,6 +40,7 @@ function listen(player: PagePlayer) {
   const heard: string[] = [];
   const events: PlayerEvents = {
     ready: () => heard.push("ready"),
+    disconnected: () => heard.push("disconnected"),
     loaded: (songId, duration) => heard.push(`loaded ${songId} ${duration}`),
     ended: (songId) => heard.push(`ended ${songId}`),
     failed: (songId) => heard.push(`failed ${songId}`),
@@ -63,6 +64,44 @@ const song: Song = {
 };
 
 describe("the Player Page's Player", () => {
+  it("sends the volume with a load and applies later volume changes", () => {
+    const player = new PagePlayer();
+    const page = new FakeSocket();
+    player.connect(page);
+    player.play(song, { muted: false, volume: 25 });
+    player.setVolume(0);
+    expect(page.sent).toEqual([
+      {
+        event: "load",
+        songId: "song-1",
+        videoId: "dQw4w9WgXcQ",
+        muted: false,
+        startAt: 0,
+        volume: 25,
+      },
+      { event: "volume", volume: 0 },
+    ]);
+  });
+  it("loads a paused Song and forwards pause and resume to the page", () => {
+    const player = new PagePlayer();
+    const page = new FakeSocket();
+    player.connect(page);
+    player.play(song, { muted: false, startAt: 12, paused: true });
+    player.resume();
+    player.pause();
+    expect(page.sent).toEqual([
+      {
+        event: "load",
+        songId: "song-1",
+        videoId: "dQw4w9WgXcQ",
+        muted: false,
+        startAt: 12,
+        paused: true,
+      },
+      { event: "resume" },
+      { event: "pause" },
+    ]);
+  });
   it("is ready once a page connects, and says so", () => {
     const player = new PagePlayer();
     const heard = listen(player);
