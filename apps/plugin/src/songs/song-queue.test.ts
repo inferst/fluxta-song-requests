@@ -9,9 +9,11 @@ import {
 import type {
   Player,
   PlayerEvents,
+  Playable,
   Provider,
   Song,
   SongDroppedReason,
+  Track,
 } from "./provider";
 import {
   SongQueue,
@@ -26,11 +28,17 @@ class FakePlayer implements Player {
   readonly played: string[] = [];
   /** Everything it was told, in order: `play one`, `play one muted`, `unmute one`, `stop`. */
   readonly told: string[] = [];
+  /** What it was told to play last — a Song or a Fallback Track. */
+  lastPlayable?: Playable;
   readonly #titles = new Map<string, string>();
   #events?: PlayerEvents;
 
-  play(song: Song, { muted, startAt }: { muted: boolean; startAt?: number }) {
+  play(
+    song: Playable,
+    { muted, startAt }: { muted: boolean; startAt?: number },
+  ) {
     this.played.push(song.title);
+    this.lastPlayable = song;
     this.told.push(
       `play ${song.title}${muted ? " muted" : ""}${startAt !== undefined ? ` at ${startAt}` : ""}`,
     );
@@ -59,15 +67,15 @@ class FakePlayer implements Player {
   }
 
   /** The Song plays, and is this long — `undefined` for a live stream. */
-  load(song: Song, duration: number | undefined) {
-    this.#events?.loaded(song.id, duration);
+  load(song: Playable, duration: number | undefined, title?: string) {
+    this.#events?.loaded(song.id, duration, title);
   }
 
-  end(song: Song) {
+  end(song: Playable) {
     this.#events?.ended(song.id);
   }
 
-  fail(song: Song) {
+  fail(song: Playable) {
     this.#events?.failed(song.id);
   }
 }
@@ -1261,5 +1269,200 @@ describe("the History", () => {
     });
 
     expect(back.snapshot().history).toEqual(queue.snapshot().history);
+  });
+});
+
+function fallbackTrack(title: string, duration?: number): Track {
+  return {
+    provider: "fake",
+    trackId: title,
+    title,
+    channel: "fake channel",
+    channelUrl: "fake://channel",
+    url: `fake://${title}`,
+    ...(duration === undefined ? {} : { duration }),
+  };
+}
+
+/**
+ * The Fallback Playlist against a fake Provider's Player. `random` fixed at
+ * 0 makes the shuffle deterministic: Fisher-Yates over [a, b, c, d] gives
+ * the order b, c, d, a.
+ */
+function fallbackQueue() {
+  const { provider, player } = fakeProvider("fake");
+  let next = 0;
+  const heard: HeardSongEvent[] = [];
+  const queue = new SongQueue({
+    providers: [provider],
+    newId: () => `song-${++next}`,
+    random: () => 0,
+    onStarted: (song) => heard.push({ event: "started", song }),
+    onEnded: (song, how) => heard.push({ event: "ended", song, how }),
+    onDropped: (song, why) => heard.push({ event: "dropped", song, why }),
+  });
+  player.connect();
+  return { queue, player, heard };
+}
+
+describe("the Fallback Playlist", () => {
+  it("plays shuffled while the Song Queue is empty; with none learned the player stays silent", () => {
+    const { queue, player } = fallbackQueue();
+    queue.setFallbackTracks(undefined);
+    expect(player.played).toEqual([]);
+
+    queue.setFallbackTracks([
+      fallbackTrack("a", 100),
+      fallbackTrack("b", 100),
+      fallbackTrack("c", 100),
+      fallbackTrack("d", 100),
+    ]);
+    expect(player.played).toEqual(["b"]);
+    expect(queue.status()).toMatchObject({
+      isFallback: true,
+      currentTitle: "b",
+      currentRequester: "",
+      queueLength: 0,
+    });
+  });
+
+  it("hands the Player one Fallback Track at a time and shuffles again after the last", () => {
+    const { queue, player } = fallbackQueue();
+    queue.setFallbackTracks([
+      fallbackTrack("a", 100),
+      fallbackTrack("b", 100),
+      fallbackTrack("c", 100),
+      fallbackTrack("d", 100),
+    ]);
+
+    // Each track plays once, in the shuffled order — never the playlist at once.
+    for (const title of ["c", "d", "a"]) {
+      player.end(player.lastPlayable!);
+      expect(player.played.at(-1)).toBe(title);
+    }
+    // Past the last track the playlist is shuffled again: b opens the next pass.
+    player.end(player.lastPlayable!);
+    expect(player.played.at(-1)).toBe("b");
+  });
+
+  it("lets a Song wait for the Fallback Track on air and comes back when the Song Queue is empty again", async () => {
+    const { queue, player, heard } = fallbackQueue();
+    queue.setFallbackTracks([fallbackTrack("a", 100), fallbackTrack("b", 100)]);
+    player.load(player.lastPlayable!, 100);
+
+    const answer = await queue.request("fake:requested@120");
+    expect(answer).toMatchObject({ kind: "accepted", position: 1, eta: 100 });
+    expect(player.played).toEqual(["b"]);
+
+    player.end(player.lastPlayable!);
+    expect(player.played.at(-1)).toBe("requested");
+
+    const song = player.lastPlayable!;
+    player.load(song, 120);
+    expect(heard).toEqual([
+      {
+        event: "started",
+        song: expect.objectContaining({ title: "requested" }),
+      },
+    ]);
+    player.end(song);
+    expect(player.played.at(-1)).toBe("a");
+    expect(queue.status().isFallback).toBe(true);
+  });
+
+  it("Skip moves to the next Fallback Track, or to a waiting Song, firing no Song Event", async () => {
+    const { queue, player, heard } = fallbackQueue();
+    queue.setFallbackTracks([fallbackTrack("a", 100), fallbackTrack("b", 100)]);
+
+    expect(queue.skip()).toMatchObject({ title: "b" });
+    expect(player.played.at(-1)).toBe("a");
+
+    const answer = await queue.request("fake:waiting@60");
+    expect(answer.kind).toBe("accepted");
+    expect(queue.skip()).toMatchObject({ title: "a" });
+    expect(player.played.at(-1)).toBe("waiting");
+    expect(heard).toEqual([]);
+    expect(queue.snapshot().history).toEqual([]);
+  });
+
+  it("skips a Fallback Track that fails at load, without an Event or a History entry", () => {
+    const { queue, player, heard } = fallbackQueue();
+    queue.setFallbackTracks([fallbackTrack("a", 100), fallbackTrack("b", 100)]);
+
+    player.fail(player.lastPlayable!);
+    expect(player.played).toEqual(["b", "a"]);
+    expect(heard).toEqual([]);
+    expect(queue.snapshot().history).toEqual([]);
+  });
+
+  it("checks no Rules for Fallback Tracks: one far past the longest duration plays", () => {
+    const { queue, player, heard } = fallbackQueue();
+    queue.setFallbackTracks([
+      fallbackTrack("long", 10_000),
+      fallbackTrack("short", 100),
+    ]);
+
+    expect(player.played).toEqual(["short"]);
+    player.load(player.lastPlayable!, 100);
+    player.end(player.lastPlayable!);
+    expect(player.played.at(-1)).toBe("long");
+    expect(heard).toEqual([]);
+    expect(queue.snapshot().history).toEqual([]);
+  });
+
+  it("learns a keyless Fallback Track's title at its Start Check and skips a live one", () => {
+    const { queue, player } = fallbackQueue();
+    queue.setFallbackTracks([
+      fallbackTrack("c", 100),
+      { ...fallbackTrack("keyless"), title: "" },
+      fallbackTrack("live"),
+    ]);
+
+    // No duration known: it plays muted, and the player names it as it loads.
+    expect(player.told.at(-1)).toBe("play  muted");
+    const keyless = player.lastPlayable!;
+    player.load(keyless, 90, "The Title The Player Holds");
+    expect(player.told.at(-1)).toBe("unmute ");
+    expect(queue.status()).toMatchObject({
+      isFallback: true,
+      currentTitle: "The Title The Player Holds",
+    });
+
+    // A live stream has no end: it cannot keep the stream company, so it is skipped.
+    player.end(keyless);
+    const live = player.lastPlayable!;
+    expect(live.trackId).toBe("live");
+    player.load(live, undefined);
+    expect(player.played.at(-1)).toBe("c");
+    expect(queue.status().currentTitle).toBe("c");
+  });
+
+  it("counts a keyless Fallback Track's eta once the player reports its duration", async () => {
+    const { queue, player } = fallbackQueue();
+    queue.setFallbackTracks([{ ...fallbackTrack("keyless"), title: "" }]);
+
+    // The track came without a duration: no eta until the player reports one.
+    const waiting = await queue.request("fake:waiting@60");
+    expect(waiting).toMatchObject({ kind: "accepted", position: 1 });
+    expect(waiting.kind === "accepted" && waiting.eta).toBe(undefined);
+
+    player.load(player.lastPlayable!, 90, "Keyless");
+    const behind = await queue.request("fake:behind@60");
+    expect(behind).toMatchObject({ kind: "accepted", position: 2, eta: 150 });
+  });
+
+  it("keeps a requested Song waiting while the playlist is learned after it", async () => {
+    const { queue, player } = fallbackQueue();
+    const answer = await queue.request("fake:first@100");
+    expect(answer).toMatchObject({ kind: "accepted", position: 0 });
+    expect(player.played).toEqual(["first"]);
+
+    // Learning the playlist does not interrupt the Current Song.
+    queue.setFallbackTracks([fallbackTrack("a", 100)]);
+    expect(player.played).toEqual(["first"]);
+
+    player.load(player.lastPlayable!, 100);
+    player.end(player.lastPlayable!);
+    expect(player.played.at(-1)).toBe("a");
   });
 });

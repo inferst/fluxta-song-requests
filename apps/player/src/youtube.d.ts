@@ -35,6 +35,8 @@ declare namespace YT {
     video_id?: string;
     /** Whether the video is a live stream. */
     isLive?: boolean;
+    /** The title the player holds for the video. */
+    title?: string;
   }
 
   class Player {
@@ -42,6 +44,13 @@ declare namespace YT {
     loadVideoById(videoId: string): void;
     loadVideoById(video: { videoId: string; startSeconds?: number }): void;
     cueVideoById(video: { videoId: string; startSeconds?: number }): void;
+    /**
+     * Cues a playlist without playing it — how the page lists the Fallback
+     * Playlist for the sidecar (ADR-0003).
+     */
+    cuePlaylist(args: { list: string }): void;
+    /** The ids of the playlist's entries the player has loaded. */
+    getPlaylist(): string[];
     playVideo(): void;
     pauseVideo(): void;
     setVolume(volume: number): void;

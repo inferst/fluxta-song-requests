@@ -10,6 +10,7 @@ export function createPlaybackSources(queue: SongQueue): Source[] {
     "playerConnected",
     "currentTitle",
     "currentRequester",
+    "isFallback",
     "queueLength",
     "queueDuration",
     "volume",

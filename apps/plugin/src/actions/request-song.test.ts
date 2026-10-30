@@ -2,7 +2,13 @@ import { StandaloneTriggerContext } from "@fluxta/sdk/api";
 import type { RequestSongSettings } from "song-requests-protocol";
 import { describe, expect, it } from "vitest";
 
-import type { Player, PlayerEvents, Provider, Song } from "../songs/provider";
+import type {
+  Player,
+  PlayerEvents,
+  Playable,
+  Provider,
+  Song,
+} from "../songs/provider";
 import { SongQueue } from "../songs/song-queue";
 import { RequestSongAction } from "./request-song";
 
@@ -40,7 +46,7 @@ function fakeProvider(player: Player) {
 function requestSong() {
   let playerEvents: PlayerEvents | undefined;
   let ready = false;
-  const played: Song[] = [];
+  const played: Playable[] = [];
   const started: Song[] = [];
   const player: Player = {
     get ready() {

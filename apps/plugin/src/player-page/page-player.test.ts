@@ -225,4 +225,26 @@ describe("the Player Page's Player", () => {
     expect(heard).toEqual(["ready", "ready"]);
     expect(connected.at(-1)).toBe(true);
   });
+
+  it("cues a playlist to list it, and answers with the ids the page lists", async () => {
+    const player = new PagePlayer();
+    const page = new FakeSocket();
+    player.connect(page);
+
+    const listing = player.listPlaylist("PLx0sYbCqOb8");
+    expect(page.sent).toEqual([{ event: "cue", playlistId: "PLx0sYbCqOb8" }]);
+    page.says({ event: "cued", ids: ["dQw4w9WgXcQ", "video2xxxxx"] });
+    await expect(listing).resolves.toEqual(["dQw4w9WgXcQ", "video2xxxxx"]);
+  });
+
+  it("answers an empty listing without a page, or when the page goes away mid-cue", async () => {
+    const player = new PagePlayer();
+    await expect(player.listPlaylist("PLx0sYbCqOb8")).resolves.toEqual([]);
+
+    const page = new FakeSocket();
+    player.connect(page);
+    const listing = player.listPlaylist("PLx0sYbCqOb8");
+    page.close();
+    await expect(listing).resolves.toEqual([]);
+  });
 });

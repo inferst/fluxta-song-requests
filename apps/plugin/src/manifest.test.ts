@@ -77,6 +77,7 @@ describe("manifest.json", () => {
       ["playerConnected", "boolean"],
       ["currentTitle", "string"],
       ["currentRequester", "string"],
+      ["isFallback", "boolean"],
       ["queueLength", "number"],
       ["queueDuration", "number"],
       ["volume", "number"],

@@ -50,6 +50,8 @@ const PluginStatusSchema = z.object({
   defaults: RuleDefaultsSchema,
   /** What the streamer never wants played; adding comes with Block Song. */
   blocklist: z.array(BlocklistEntrySchema),
+  /** The Fallback Playlist's link as saved, `""` for none. */
+  fallbackPlaylist: z.string(),
 });
 
 const EditorMessageSchema = z.discriminatedUnion("event", [
@@ -73,6 +75,11 @@ const EditorMessageSchema = z.discriminatedUnion("event", [
   z.object({
     event: z.literal("remove-blocklist-entry"),
     entry: BlocklistEntrySchema,
+  }),
+  /** The Fallback Playlist's link, `""` to remove it. Read when it is set. */
+  z.object({
+    event: z.literal("set-fallback-playlist"),
+    playlist: z.string().max(500),
   }),
 ]);
 

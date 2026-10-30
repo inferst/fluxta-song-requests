@@ -82,8 +82,10 @@ function stateOf(apiKey: ApiKeyStatus): {
 export function SettingsSection({ status }: { status: PluginStatus }) {
   const editor = usePluginEditor();
   const [apiKey, setApiKey] = useState("");
+  const [playlist, setPlaylist] = useState("");
   const keyState = stateOf(status.apiKey);
   const hasKey = status.apiKey.state !== "none";
+  const savedPlaylist = status.fallbackPlaylist;
 
   function send(message: EditorMessage) {
     void editor.sendToPlugin(message);
@@ -92,6 +94,11 @@ export function SettingsSection({ status }: { status: PluginStatus }) {
   function saveKey(next: string) {
     send({ event: "set-api-key", apiKey: next });
     setApiKey("");
+  }
+
+  function savePlaylist(next: string) {
+    send({ event: "set-fallback-playlist", playlist: next });
+    setPlaylist("");
   }
 
   return (
@@ -168,6 +175,40 @@ export function SettingsSection({ status }: { status: PluginStatus }) {
           }
           hint="Taken from this computer's language settings until you pick another."
         />
+      </Section>
+      <Section
+        title="Fallback Playlist"
+        description="A YouTube playlist whose tracks play shuffled, one at a time, while the Song Queue is empty — so the stream is never silent. With the API Key its tracks are checked before they play; without it, what cannot play is skipped when its turn comes. A Song always waits for the Fallback Track on air to end."
+      >
+        <TextField
+          label="Playlist link"
+          value={playlist}
+          onChange={setPlaylist}
+          placeholder={
+            savedPlaylist
+              ? `${savedPlaylist} saved — paste a new one to replace it`
+              : "https://www.youtube.com/playlist?list=…"
+          }
+          hint="The whole link, from a YouTube playlist's Share or address bar."
+        />
+        <div className="flex gap-2">
+          <Button
+            type="button"
+            disabled={!playlist.trim()}
+            onClick={() => savePlaylist(playlist)}
+          >
+            Save
+          </Button>
+          {savedPlaylist ? (
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => savePlaylist("")}
+            >
+              Remove
+            </Button>
+          ) : null}
+        </div>
       </Section>
     </>
   );

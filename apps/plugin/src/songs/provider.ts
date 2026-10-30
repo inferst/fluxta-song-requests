@@ -39,11 +39,15 @@ export type RequestMetadata = {
   reference: string;
 };
 
+/** What a Player is handed: a Song, or the Fallback Playlist's track (ADR-0003). */
+export type Playable = Track & {
+  /** Its own id, unique while it is on air — what the Player and its events name it by. */
+  id: string;
+};
+
 /** A Request accepted into the Song Queue. */
-export type Song = Track &
+export type Song = Playable &
   RequestMetadata & {
-    /** The Song's own id, unique in the Song Queue and in the Song's Events. */
-    id: string;
     /** Next Songs precede In turn Songs without interrupting the Current Song. */
     position?: "inTurn" | "next";
     /** Arrival order, independent of the Song's place among Next Songs. */
@@ -55,6 +59,12 @@ export type Song = Track &
      */
     durationBounds?: { maxSeconds?: number; minSeconds?: number };
   };
+
+/**
+ * The Fallback Playlist's track on air. It is not a Song: Playability
+ * applies to it, but no Rules, no Events, no History.
+ */
+export type FallbackTrack = Playable;
 
 /** Why a Song left the Song Queue without ever being heard. */
 export type SongDroppedReason =
@@ -98,9 +108,11 @@ export interface PlayerEvents {
   disconnected(): void;
   /**
    * The Song plays — muted, if it was played so — and is this long, in
-   * seconds; `undefined` for a live stream, which has no end.
+   * seconds; `undefined` for a live stream, which has no end. `title` is
+   * the player's own, how a Fallback Track learned without the API Key is
+   * named.
    */
-  loaded(songId: string, duration: number | undefined): void;
+  loaded(songId: string, duration: number | undefined, title?: string): void;
   /** The Song played to its end. */
   ended(songId: string): void;
   /** The Song could not be played, or broke while playing. */
@@ -125,7 +137,7 @@ export interface Player {
    * A pause and volume accompany a load so a new Player Page applies them
    * before anything is heard.
    */
-  play(song: Song, options: PlayOptions): void;
+  play(song: Playable, options: PlayOptions): void;
   /** Lets the Song on air be heard; a Song that is no longer on air stays as it is. */
   unmute(songId: string): void;
   /** Stops whatever is on; nothing plays until the next `play`. */

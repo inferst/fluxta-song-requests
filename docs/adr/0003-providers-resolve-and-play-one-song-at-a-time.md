@@ -15,9 +15,13 @@ own queue cannot be edited. The Fallback Playlist goes the same way: the
 plugin learns the playlist's tracks — through the Data API with the API Key,
 at a unit per 50 tracks and with every title, duration and Playability; from
 the player, which can list a playlist it is given, without it — shuffles them
-and hands the Player one track at a time, skipping any it cannot play. Handed
-the playlist to play itself, YouTube's player kept its order through a
-shuffle and stuck on the first entry it could not play (spike #3). The tests carry a fake second Provider, so
+and hands the Player one track at a time, skipping any it cannot play; after
+the last track the order is shuffled again. A long playlist settles this: the
+player loads its entries in chunks and `getPlaylist()` lists only what it has
+loaded, so a keyless learn takes the ids it returns — the first entries — as
+the learned list, and the reshuffle replays that list rather than re-learning
+it. Handed the playlist to play itself, YouTube's player kept its order
+through a shuffle and stuck on the first entry it could not play (spike #3). The tests carry a fake second Provider, so
 that the Song Queue, the Rules and the Events are shown not to depend on
 YouTube.
 

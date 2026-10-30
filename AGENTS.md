@@ -63,19 +63,20 @@ Editor-only and Player Page-only rebuilds restart nothing — reopen the editor 
 ### Plugin sidecar (`apps/plugin/src`)
 
 ```
-index.ts            composition root: the YouTube Provider on the Player Page's Player, the Song Queue, the Actions, editor messages, Plugin settings (the Player Key, the API Key, the Region), the Player Page's server
+index.ts            composition root: the YouTube Provider on the Player Page's Player, the Song Queue, the Actions, editor messages, Plugin settings (the Player Key, the API Key, the Region, the Fallback Playlist), the Player Page's server; learns the Fallback Playlist through the Data API with the key, through the page's player without it
 plugin.ts           the single `Plugin` instance from @fluxta/sdk/api
 settings.ts         Plugin settings as the sidecar keeps them; it is their only writer
 state-file.ts       the State file (ADR-0002): the Song Queue and the History in one JSON file of the plugin's own in the OS's per-user application data folder, written atomically, read back on start
 songs/
-  provider.ts       the Provider seam (ADR-0003): Track, Song, Refusal reasons, Player and its events
-  song-queue.ts     the Song Queue: routes a Request to the Provider that claims it, keeps the order, applies the Rules (with the step's Overrides), hands each Provider's Player one Song at a time, runs the Start Check, answers `eta`
+  provider.ts       the Provider seam (ADR-0003): Track, Song, Refusal reasons, Player and its events; the Fallback Track handed to a Player
+  song-queue.ts     the Song Queue: routes a Request to the Provider that claims it, keeps the order, applies the Rules (with the step's Overrides), hands each Provider's Player one Song — or one Fallback Track — at a time, runs the Start Check, answers `eta`
   rules.ts          the Rules: a step's Overrides over the Defaults, resolved and checked against a track and the queue
   history.ts        the History: the Songs that left the air, newest first, at most 200 and none older than 30 days
 youtube/
-  link.ts           a Request that is one YouTube link → its video id
+  link.ts           a Request that is one YouTube link → its video id; a settings link → its playlist id
   provider.ts       the YouTube Provider: links through the Data API or oEmbed; search candidates checked for Playability and through the Song Queue's Rules callback
-  data-api.ts       `videos.list` and `search.list` with the API Key; refused keys and separate daily units and Search Queries quotas
+  playlist.ts       the Fallback Playlist learned through the Data API (`playlistItems.list` + `videos.list`, a unit per 50 tracks each), leaving out what cannot play; tracks from the ids the player listed without the key
+  data-api.ts       `videos.list`, `search.list` and `playlistItems.list` with the API Key; refused keys and separate daily units and Search Queries quotas
   search-cache.ts   normalized search words to the chosen video id, kept for 7 days in the State file; every hit is checked afresh
   quota-reset.ts    when YouTube resets its daily quotas: midnight Pacific
   playability.ts    a `videos.list` item → a track with its duration, or the Playability Refusal
@@ -83,7 +84,7 @@ youtube/
   region.ts         the Region of a locale, and of this computer (`AppleLocale` on macOS)
   fetch.ts          the `fetch` YouTube's clients take, so tests can hand them a fake
 player-page/
-  page-player.ts    YouTube's Player: the Player Page connected over its WebSocket; the page opened last takes over
+  page-player.ts    YouTube's Player: the Player Page connected over its WebSocket; the page opened last takes over; cues a playlist there to list it, the keyless way of learning the Fallback Playlist
   server.ts         the page, its scripts and its WebSocket on both loopbacks; 403 without the Player Key
   player-key.ts     the Player Key, made once and kept in Plugin settings
 actions/            one StandaloneAction per manifest Action, file named after its `type`; templated.ts reads TemplateField settings
@@ -99,14 +100,14 @@ A Request travels `actions/request-song.ts` → `SongQueue.request` → the Prov
 
 ### Player Page (`apps/player`)
 
-`index.html` and `src/main.ts`: it reads the Player Key from its own address, opens `ws://<host>/ws?key=…`, loads each Song the sidecar sends — muted, for a Song at its Start Check — and reports `loaded` (the player's duration, and whether the video is live — by `getVideoData().isLive`, or, at a Start Check, by a duration that grows as it plays), `ended` and `error` back; `unmute` lets a Song be heard from its start, `stop` stops it. It reconnects when the link drops, except when it is closed with `REPLACED_CLOSE_CODE` — another page took over — and then it stops for good. `src/youtube.d.ts` types the part of the IFrame Player API it uses.
+`index.html` and `src/main.ts`: it reads the Player Key from its own address, opens `ws://<host>/ws?key=…`, loads each Song the sidecar sends — muted, for a Song at its Start Check — and reports `loaded` (the player's duration, and whether the video is live — by `getVideoData().isLive`, or, at a Start Check, by a duration that grows as it plays), `ended` and `error` back; `unmute` lets a Song be heard from its start, `stop` stops it. A `cue` asks it to cue a playlist in the player only to list the video ids, which it answers as `cued` — the keyless way of learning the Fallback Playlist. It reconnects when the link drops, except when it is closed with `REPLACED_CLOSE_CODE` — another page took over — and then it stops for good. `src/youtube.d.ts` types the part of the IFrame Player API it uses.
 
 ## Key Conventions
 
 - **Manifest and code change together.** `manifest.json` declares every Action (with its `produces`), and the code registers exactly those, by the same `type` / `key`. Adding an Action means: its manifest entry, `apps/plugin/src/actions/<type>.ts` with its test, its registration in `index.ts`, its settings type in `song-requests-protocol` and an icon in `icons/`. An Action with settings also gets `apps/editor/<type>.html` and `apps/editor/src/<type>/`; an Action without settings omits the manifest's `editor` and has no editor page.
 - **Naming in the manifest** ([manifest reference](https://fluxta.app/docs/plugins/reference/manifest)): every kind — an Action `type` — is kebab-case (`request-song`); every key — a produced value, a settings field — is camelCase (`songId`).
 - **Nothing above the Provider seam knows YouTube** (ADR-0003). The Song Queue, the Actions and the Events deal in Tracks and Songs; a video id, oEmbed or anything else YouTube's stays under `youtube/` and `player-page/`. The tests' fake second Provider (`songs/song-queue.test.ts`) is what keeps it so — a change that needs YouTube there belongs behind the seam.
-- **A Player holds no queue.** The Song Queue hands it the next Song only when the Current Song is over; never pass it a list.
+- **A Player holds no queue.** The Song Queue hands it the next Song — or the next Fallback Track — only when the Current Song is over; never pass it a list. (Cuing a playlist in the IFrame player to list it is not playback; the player reports `cued` and the sidecar stops it.)
 - **Playback state is queried.** The eight playback Value Sources and Requests Open use `registerSource`, declared as `resolve: "query"` and `context: "standalone"`. Each reads current local state; no host reconnect callback or `setVariable` replay is needed. Requests Open is kept in the State file and shared by the Requests Action and the Plugin Editor. These sources do not provide automatic live button-title bindings.
 - **The Player Page's address is `localhost`, never an IP.** YouTube refuses to play on a page whose host is an IP address (error 150, spike #3), so the server listens on both loopbacks and every address it shows says `localhost`. The page stays on this computer (ADR-0001).
 - **The Player Page shows the player and nothing else, and must stay in view.** YouTube's policies forbid a player that is not shown and anything drawn over it (ADR-0001). Information about the Song belongs on another page, not on this one.
@@ -116,7 +117,7 @@ A Request travels `actions/request-song.ts` → `SongQueue.request` → the Prov
 - **Run Variables** ([guide](https://fluxta.app/docs/plugins/guides/run-variables)): a setting edited through a `TemplateField` arrives with its references substituted and may hold a number or a boolean. Read it through `templatedText` (`actions/templated.ts`), never as a bare string.
 - **The sidecar bundle is self-contained.** Fluxta runs it with a bundled Node and no `node_modules`, so tsdown inlines every non-builtin dependency (`noExternal`). Do not externalize one.
 - **File naming**: the sidecar, the Player Page and `song-requests-protocol` use kebab-case (`song-queue.ts`, `page-player.ts`). In the editors, React components are PascalCase (`PlayerPageSection.tsx`), hooks are `useThing.ts`.
-- **Tests**: vitest, colocated `*.test.ts`, at these seams: the link parser; the Data API client against a fake `fetch` and vitest's fake clock; the Region of a locale; the YouTube Provider against a fake `fetch`; the Song Queue with fake Providers and Players, `eta` on the fake clock; the State file's round trip and its recovery from a broken file, in a temporary folder; the Player Page's Player against a fake socket; the Player Page's server on a real loopback port; each Action through a real Song Queue; the protocol's message checks. No test reaches YouTube. The Player Page's browser script and the editors have no tests; OBS checks the page.
+- **Tests**: vitest, colocated `*.test.ts`, at these seams: the link parser; the Data API client against a fake `fetch` and vitest's fake clock; the Fallback Playlist learned against a fake `fetch` (the Data-API units counted) and from the ids a fake Player listed; the Region of a locale; the YouTube Provider against a fake `fetch`; the Song Queue with fake Providers and Players, `eta` on the fake clock; the State file's round trip and its recovery from a broken file, in a temporary folder; the Player Page's Player against a fake socket; the Player Page's server on a real loopback port; each Action through a real Song Queue; the protocol's message checks. No test reaches YouTube. The Player Page's browser script and the editors have no tests; OBS checks the page.
 - **Comments say why** — the YouTube or Fluxta behaviour that forces the code — and use the capitalized terms of `CONTEXT.md` and Fluxta's [Terminology](https://fluxta.app/docs/plugins/getting-started/terminology).
 
 ## Working against Fluxta

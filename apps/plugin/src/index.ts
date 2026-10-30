@@ -38,6 +38,8 @@ import type { PluginSettings } from "./settings";
 import { SongQueue } from "./songs/song-queue";
 import { StateFile } from "./state-file";
 import { DataApi } from "./youtube/data-api";
+import { playlistIdOf } from "./youtube/link";
+import { keylessPlaylistTracks, playlistTracks } from "./youtube/playlist";
 import { createYouTubeProvider } from "./youtube/provider";
 import { systemRegion } from "./youtube/region";
 import { SearchCache } from "./youtube/search-cache";
@@ -169,7 +171,47 @@ function status(): PluginStatus {
       requestsOpen: queue.requestsOpen,
     } satisfies RuleDefaults,
     blocklist: (settings?.blocklist ?? []) as BlocklistEntry[],
+    fallbackPlaylist: settings?.fallbackPlaylist ?? "",
   };
+}
+
+/**
+ * Learns the Fallback Playlist's tracks and hands them to the Song Queue.
+ * Read when the playlist is set and when the plugin starts: through the
+ * Data API with a usable key — `playlistItems.list` and `videos.list` at a
+ * unit per 50 tracks each — or, without one, from the Player Page, which
+ * lists a playlist it is cued with (ADR-0003).
+ */
+async function learnFallbackPlaylist(): Promise<void> {
+  const link = settings?.fallbackPlaylist?.trim() ?? "";
+  const playlistId = link ? playlistIdOf(link) : undefined;
+  if (!playlistId) {
+    queue.setFallbackTracks(undefined);
+    return;
+  }
+  if (!dataApi.unusable()) {
+    queue.setFallbackTracks(
+      await playlistTracks(
+        dataApi,
+        playlistId,
+        chosenRegion() ?? SYSTEM_REGION,
+      ),
+    );
+    return;
+  }
+  if (pagePlayer.ready) {
+    const ids = await pagePlayer.listPlaylist(playlistId);
+    queue.setFallbackTracks(keylessPlaylistTracks(ids));
+  }
+}
+
+// Readings overlap easily — a page connecting as the answer arrives, a key
+// saved mid-read — and each spends units; they run one after another.
+let learningFallback: Promise<void> = Promise.resolve();
+function scheduleFallbackLearning(): void {
+  learningFallback = learningFallback
+    .then(learnFallbackPlaylist)
+    .catch(() => {});
 }
 
 /** Tells every open editor how the plugin stands. */
@@ -192,7 +234,11 @@ function saveSettings(change: Partial<PluginSettings>): void {
     .catch(() => console.error("The Plugin settings could not be saved"));
 }
 
-pagePlayer.onConnectionChange(publish);
+pagePlayer.onConnectionChange((connected) => {
+  publish();
+  // Without the API Key the Fallback Playlist is read from the page.
+  if (connected) scheduleFallbackLearning();
+});
 dataApi.onStatusChange(publish);
 
 // Attached before connecting, so nothing sent while the editor was already
@@ -212,6 +258,16 @@ plugin.onReceiveFromEditor((message: unknown) => {
       dataApi.setKey(apiKey);
       // So the Plugin Editor can say whether YouTube accepts it at once.
       void dataApi.check();
+      // Which way the Fallback Playlist is read may have changed.
+      scheduleFallbackLearning();
+      return;
+    }
+
+    case "set-fallback-playlist": {
+      if (!settings) return;
+      saveSettings({ fallbackPlaylist: message.playlist.trim() || undefined });
+      scheduleFallbackLearning();
+      publish();
       return;
     }
 
@@ -269,6 +325,7 @@ settings = { ...stored, playerKey };
 
 dataApi.setKey(typeof settings.apiKey === "string" ? settings.apiKey : "");
 void dataApi.check();
+scheduleFallbackLearning();
 
 try {
   await startPlayerPageServer({

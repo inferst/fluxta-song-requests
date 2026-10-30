@@ -12,6 +12,11 @@ export type PluginSettings = {
   region?: string;
   /** The Rules' Defaults as the streamer set them; #1's where absent. */
   ruleDefaults?: Partial<RuleDefaults>;
+  /**
+   * The Fallback Playlist's link. Read when it is set and when the plugin
+   * starts — through the Data API with a usable key, from the player without one.
+   */
+  fallbackPlaylist?: string;
   /** The tracks and channels the streamer never wants played. */
   blocklist?: BlocklistEntry[];
   [key: string]: unknown;

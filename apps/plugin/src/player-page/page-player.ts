@@ -5,10 +5,10 @@ import {
 } from "song-requests-protocol";
 
 import type {
+  Playable,
   Player,
   PlayerEvents,
   PlayOptions,
-  Song,
 } from "../songs/provider";
 
 /** One Player Page's WebSocket, as narrow as the Player needs it. */
@@ -28,6 +28,8 @@ export class PagePlayer implements Player {
   #page?: PageSocket;
   #events?: PlayerEvents;
   readonly #connectionListeners: ((connected: boolean) => void)[] = [];
+  /** What a `cue` waits for, named by the request it was sent for. */
+  #listing?: (ids: string[]) => void;
 
   get ready(): boolean {
     return this.#page !== undefined;
@@ -56,6 +58,11 @@ export class PagePlayer implements Player {
     page.onClose(() => {
       if (this.#page !== page) return;
       this.#page = undefined;
+      // A cue whose page went away lists nothing; the playlist is learned
+      // anew when a page connects.
+      const listing = this.#listing;
+      this.#listing = undefined;
+      listing?.([]);
       this.#events?.disconnected();
       this.#tellConnection();
     });
@@ -65,7 +72,7 @@ export class PagePlayer implements Player {
     this.#events?.ready();
   }
 
-  play(song: Song, { muted, startAt, paused, volume }: PlayOptions): void {
+  play(song: Playable, { muted, startAt, paused, volume }: PlayOptions): void {
     this.#send({
       event: "load",
       songId: song.id,
@@ -95,6 +102,20 @@ export class PagePlayer implements Player {
     this.#send({ event: "volume", volume });
   }
 
+  /**
+   * The keyless way of learning the Fallback Playlist: cues it in the page
+   * — never to play it (ADR-0003) — and takes what `getPlaylist()` lists.
+   * YouTube's player loads a long playlist's entries in chunks, so a long
+   * one may list only its first entries. Without a connected page, `[]`.
+   */
+  listPlaylist(playlistId: string): Promise<string[]> {
+    if (!this.#page) return Promise.resolve([]);
+    return new Promise((resolve) => {
+      this.#listing = resolve;
+      this.#send({ event: "cue", playlistId });
+    });
+  }
+
   #send(message: SidecarMessage): void {
     this.#page?.send(JSON.stringify(message));
   }
@@ -110,8 +131,15 @@ export class PagePlayer implements Player {
         this.#events?.loaded(
           message.songId,
           message.live ? undefined : Math.round(message.duration),
+          message.title,
         );
         return;
+      case "cued": {
+        const listing = this.#listing;
+        this.#listing = undefined;
+        listing?.(message.ids);
+        return;
+      }
       case "ended":
         this.#events?.ended(message.songId);
         return;
