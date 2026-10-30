@@ -74,7 +74,7 @@
     {
       "name": "Skip",
       "type": "skip",
-      "icon": "icons/skip.svg",
+      "icon": "icons/skip-forward.svg",
       "context": "standalone",
       "produces": [
         {
@@ -87,7 +87,7 @@
     {
       "name": "Playback",
       "type": "playback",
-      "icon": "icons/playback.svg",
+      "icon": "icons/circle-play.svg",
       "context": "standalone",
       "editor": "editor/playback.html",
       "produces": [
@@ -101,7 +101,7 @@
     {
       "name": "Volume",
       "type": "volume",
-      "icon": "icons/volume.svg",
+      "icon": "icons/volume-2.svg",
       "context": "standalone",
       "editor": "editor/volume.html",
       "produces": [
@@ -115,7 +115,7 @@
     {
       "name": "Remove Song",
       "type": "remove-song",
-      "icon": "icons/remove-song.svg",
+      "icon": "icons/list-minus.svg",
       "context": "standalone",
       "editor": "editor/remove-song.html",
       "produces": [
@@ -134,7 +134,7 @@
     {
       "name": "Clear Queue",
       "type": "clear-queue",
-      "icon": "icons/clear-queue.svg",
+      "icon": "icons/list-x.svg",
       "context": "standalone",
       "produces": [
         {
@@ -147,7 +147,7 @@
     {
       "name": "Block Song",
       "type": "block-song",
-      "icon": "icons/block-song.svg",
+      "icon": "icons/ban.svg",
       "context": "standalone",
       "editor": "editor/block-song.html",
       "produces": [
@@ -161,7 +161,7 @@
     {
       "name": "Requests",
       "type": "requests",
-      "icon": "icons/requests.svg",
+      "icon": "icons/toggle-right.svg",
       "context": "standalone",
       "editor": "editor/requests.html",
       "produces": [
@@ -175,7 +175,7 @@
     {
       "name": "Get Song",
       "type": "get-song",
-      "icon": "icons/get-song.svg",
+      "icon": "icons/search.svg",
       "context": "standalone",
       "editor": "editor/get-song.html",
       "produces": [
