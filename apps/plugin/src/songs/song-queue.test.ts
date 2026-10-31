@@ -1466,3 +1466,187 @@ describe("the Fallback Playlist", () => {
     expect(player.played.at(-1)).toBe("a");
   });
 });
+
+describe("the Plugin Editor's Now and the queue", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("reorders a waiting Song by drag; the new order is the snapshot's", async () => {
+    const { provider } = fakeProvider("fake");
+    const queue = songQueue(provider);
+    const one = songOf(await queue.request("fake:one@100"));
+    const two = songOf(await queue.request("fake:two@100"));
+    const three = songOf(await queue.request("fake:three@100"));
+
+    queue.reorder(three.id, 1);
+    expect(queue.snapshot().waiting.map((song) => song.title)).toEqual([
+      "three",
+      "one",
+      "two",
+    ]);
+
+    queue.reorder(one.id, 3);
+    expect(queue.snapshot().waiting.map((song) => song.title)).toEqual([
+      "three",
+      "two",
+      "one",
+    ]);
+
+    // Out of range and unknown Songs move nothing.
+    queue.reorder(two.id, 99);
+    expect(queue.snapshot().waiting.map((song) => song.title)).toEqual([
+      "three",
+      "one",
+      "two",
+    ]);
+    queue.reorder("song-0", 1);
+    expect(queue.snapshot().waiting.map((song) => song.title)).toEqual([
+      "three",
+      "one",
+      "two",
+    ]);
+  });
+
+  it("gives a moved Song the Position its new neighbourhood implies", async () => {
+    const { provider } = fakeProvider("fake");
+    const queue = songQueue(provider);
+    const one = songOf(await queue.request("fake:one@100"));
+    const two = songOf(await queue.request("fake:two@100"));
+    const three = songOf(await queue.request("fake:three@100"));
+
+    // Ahead of the first In turn Song a moved Song is Next…
+    queue.reorder(three.id, 1);
+    expect(queue.snapshot().waiting.map((song) => song.position)).toEqual([
+      "next",
+      "inTurn",
+      "inTurn",
+    ]);
+
+    // …behind one it is In turn, without touching the others.
+    queue.reorder(one.id, 3);
+    expect(queue.snapshot().waiting.map((song) => song.position)).toEqual([
+      "next",
+      "inTurn",
+      "inTurn",
+    ]);
+    void two;
+  });
+
+  it("moves a waiting Song ahead of every In turn Song, behind earlier Next ones", async () => {
+    const { provider } = fakeProvider("fake");
+    const queue = songQueue(provider);
+    await queue.request("fake:one@100");
+    await queue.request("fake:two@100");
+    const three = songOf(
+      await queue.request("fake:three@100", undefined, {
+        position: "next",
+      }),
+    );
+    const four = songOf(
+      await queue.request("fake:four@100", undefined, {
+        position: "next",
+      }),
+    );
+
+    queue.moveToNext("song-1");
+    expect(queue.snapshot().waiting.map((song) => song.title)).toEqual([
+      "three",
+      "four",
+      "one",
+      "two",
+    ]);
+    expect(
+      queue.snapshot().waiting.map((song) => song.position ?? "inTurn"),
+    ).toEqual(["next", "next", "next", "inTurn"]);
+
+    // Behind every earlier Next one — `one` moved to Next before it.
+    queue.moveToNext(three.id);
+    expect(queue.snapshot().waiting.map((song) => song.title)).toEqual([
+      "four",
+      "one",
+      "three",
+      "two",
+    ]);
+    void four;
+  });
+
+  it("reorders and moves without firing a Song Event or touching the Current Song", async () => {
+    const { provider, player } = fakeProvider("fake");
+    const { queue, heard } = eventQueue(provider);
+    player.connect();
+    const one = songOf(await queue.request("fake:one@200"));
+    await queue.request("fake:two@100");
+    const three = songOf(await queue.request("fake:three@100"));
+    player.load(one, 200);
+
+    queue.reorder(three.id, 1);
+    queue.moveToNext(three.id);
+
+    expect(heard).toEqual([{ event: "started", song: one }]);
+    expect(player.played).toEqual(["one"]);
+  });
+
+  it("answers the Now and the queue the way the editor renders them", async () => {
+    const { provider, player } = fakeProvider("fake");
+    const queue = songQueue(provider);
+    player.connect();
+    const one = songOf(await queue.request("fake:one@200"));
+    await queue.request("fake:two@100");
+    const three = await queue.request("fake:unknown");
+    player.load(one, 200);
+    vi.advanceTimersByTime(10_000);
+    queue.setVolume(40);
+    queue.requests("close");
+
+    expect(queue.editorPlayback()).toMatchObject({
+      isPaused: false,
+      volume: 40,
+      requestsOpen: false,
+      current: {
+        id: one.id,
+        title: "one",
+        requesterName: "",
+        isFallback: false,
+        duration: 200,
+        atStartCheck: false,
+      },
+      waiting: [
+        {
+          id: "song-2",
+          title: "two",
+          place: "inTurn",
+          duration: 100,
+          eta: 190,
+        },
+        {
+          title: "unknown",
+          place: "inTurn",
+          duration: null,
+          // Its own duration is not needed for the eta — only the Songs
+          // ahead of it are: 190 left of the Current Song, then 100.
+          eta: 290,
+        },
+      ],
+    });
+    expect(queue.editorPlayback().current?.position).toBe(10);
+    expect(three.kind).toBe("accepted");
+  });
+
+  it("names a Fallback Track on air as one, with no Requester", async () => {
+    const { queue, player } = fallbackQueue();
+    queue.setFallbackTracks([fallbackTrack("a", 100)]);
+    player.load(player.lastPlayable!, 100);
+
+    expect(queue.editorPlayback().current).toMatchObject({
+      title: "a",
+      isFallback: true,
+      requesterName: "",
+      duration: 100,
+    });
+  });
+});

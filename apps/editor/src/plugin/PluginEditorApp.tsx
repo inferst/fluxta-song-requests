@@ -1,6 +1,8 @@
 import { EditorPage, PluginEditorLayout } from "@fluxta/sdk/ui";
 
+import { NowSection } from "./NowSection";
 import { PlayerPageSection } from "./PlayerPageSection";
+import { QueueSection } from "./QueueSection";
 import { RulesSection } from "./RulesSection";
 import { SettingsSection } from "./SettingsSection";
 import { usePluginStatus } from "./usePluginStatus";
@@ -43,10 +45,26 @@ export function PluginEditorApp() {
             ]
           : []),
         {
+          id: "now",
+          label: "Now",
+          tone: status.playback.current
+            ? status.playback.isPaused
+              ? ("idle" as const)
+              : ("ok" as const)
+            : undefined,
+          content: <NowSection playback={status.playback} />,
+        },
+        {
           id: "player",
           label: "Player",
           tone: status.playerConnected ? "ok" : "idle",
           content: <PlayerPageSection status={status} />,
+        },
+        {
+          id: "queue",
+          label: "Song Queue",
+          count: status.playback.waiting.length,
+          content: <QueueSection playback={status.playback} />,
         },
         {
           id: "rules",

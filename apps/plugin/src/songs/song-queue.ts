@@ -1,6 +1,7 @@
 import {
   FALLBACK_RULE_DEFAULTS,
   type BlocklistEntry,
+  type PlaybackStatus,
   type RequestSongOverrides,
   type RuleDefaults,
 } from "song-requests-protocol";
@@ -628,6 +629,54 @@ export class SongQueue {
     return matches;
   }
 
+  /**
+   * Moves a waiting Song to another place in the Song Queue — the drag in
+   * the Plugin Editor. `toPosition` is 1-based among the waiting Songs.
+   * The Song takes the Position its new neighbourhood implies: ahead of the
+   * first In turn Song it is Next, behind one it is In turn. The Current
+   * Song is not touched.
+   */
+  reorder(songId: string, toPosition: number): void {
+    const from = this.#waiting.findIndex((song) => song.id === songId);
+    if (from === -1) return;
+    const [song] = this.#waiting.splice(from, 1);
+    const to = Math.min(
+      this.#waiting.length,
+      Math.max(0, Math.round(toPosition) - 1),
+    );
+    if (to === from) {
+      this.#waiting.splice(to, 0, song);
+      return;
+    }
+    // Where the first In turn Song stands once the moved Song is out.
+    const firstInTurn = this.#waiting.findIndex(
+      (waiting) => waiting.position !== "next",
+    );
+    song.position =
+      to <= (firstInTurn === -1 ? this.#waiting.length : firstInTurn)
+        ? "next"
+        : "inTurn";
+    this.#waiting.splice(to, 0, song);
+    this.#onChange?.();
+  }
+
+  /** Puts a waiting Song ahead of every In turn Song, behind earlier Next ones. */
+  moveToNext(songId: string): void {
+    const from = this.#waiting.findIndex((song) => song.id === songId);
+    if (from === -1) return;
+    const [song] = this.#waiting.splice(from, 1);
+    song.position = "next";
+    const firstInTurn = this.#waiting.findIndex(
+      (waiting) => waiting.position !== "next",
+    );
+    this.#waiting.splice(
+      firstInTurn === -1 ? this.#waiting.length : firstInTurn,
+      0,
+      song,
+    );
+    this.#onChange?.();
+  }
+
   /** Ends what is on air; a Fallback Track is skipped, with no Song Event. */
   skip(): Playable | undefined {
     const current = this.#current;
@@ -754,6 +803,45 @@ export class SongQueue {
         0,
       ),
       volume: this.#volume,
+    };
+  }
+
+  /**
+   * What the Plugin Editor's Now and the queue sections render. Sent with
+   * every status; `now` lets the editor tick the progress from its own
+   * clock — it runs on this computer.
+   */
+  editorPlayback(): PlaybackStatus {
+    const current = this.#current;
+    return {
+      now: Date.now(),
+      isPaused: this.#paused,
+      volume: this.#volume,
+      requestsOpen: this.requestsOpen,
+      current: current
+        ? {
+            id: trackOf(current).id,
+            title: trackOf(current).title,
+            channel: trackOf(current).channel,
+            url: trackOf(current).url,
+            requesterName:
+              current.kind === "song" ? current.song.requesterName : "",
+            isFallback: current.kind === "fallback",
+            duration: trackOf(current).duration ?? null,
+            position: this.#positionOf(current),
+            atStartCheck: current.atStartCheck,
+          }
+        : null,
+      waiting: this.#waiting.map((song) => ({
+        id: song.id,
+        title: song.title,
+        channel: song.channel,
+        url: song.url,
+        requesterName: song.requesterName,
+        duration: song.duration ?? null,
+        place: song.position === "next" ? "next" : "inTurn",
+        eta: this.#etaOf(song) ?? null,
+      })),
     };
   }
 

@@ -70,26 +70,13 @@ export type FallbackTrack = Playable;
 export type SongDroppedReason =
   "unavailable" | "too-long" | "too-short" | "removed" | "cleared" | "blocked";
 
-/** Why a Request did not become a Song. */
-export type RefusalReason =
-  | "not-found"
-  | "not-embeddable"
-  | "age-restricted"
-  | "region-blocked"
-  | "live"
-  | "no-api-key"
-  | "api-key-invalid"
-  | "quota-exhausted"
-  | "provider-unavailable"
-  | "closed"
-  | "too-long"
-  | "too-short"
-  | "requester-limit"
-  | "queue-full"
-  | "already-queued"
-  | "recently-played"
-  | "blocked"
-  | "not-music";
+/**
+ * Why a Request did not become a Song. The canonical list lives in
+ * `song-requests-protocol`: the Plugin Editor shows a Refusal's reason.
+ */
+import type { RefusalReason } from "song-requests-protocol";
+
+export type { RefusalReason };
 
 export type Resolution =
   { kind: "track"; track: Track } | { kind: "refused"; reason: RefusalReason };
