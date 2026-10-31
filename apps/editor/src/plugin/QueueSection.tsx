@@ -1,5 +1,4 @@
 import {
-  Badge,
   Button,
   EmptyState,
   ListRow,
@@ -166,7 +165,6 @@ function QueueRow({
           </span>
         }
         title={song.title}
-        badges={song.place === "next" ? <Badge>Next</Badge> : undefined}
         description={`${song.channel}${song.requesterName ? ` — ${song.requesterName}` : ""} · ${song.duration === null ? "—" : formatSeconds(song.duration)} · starts in ${etaText(song.eta)}`}
         actions={
           <div className="flex gap-2">
@@ -175,7 +173,7 @@ function QueueRow({
               variant="secondary"
               onClick={() => send({ event: "move-song-next", songId: song.id })}
             >
-              Next
+              Move to next
             </Button>
             <Button
               type="button"

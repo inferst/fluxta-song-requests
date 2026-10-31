@@ -663,9 +663,7 @@ export class SongQueue {
   /**
    * Moves a waiting Song to another place in the Song Queue — the drag in
    * the Plugin Editor. `toPosition` is 1-based among the waiting Songs.
-   * The Song takes the Position its new neighbourhood implies: ahead of the
-   * first In turn Song it is Next, behind one it is In turn. The Current
-   * Song is not touched.
+   * Only the order changes; the Current Song is not touched.
    */
   reorder(songId: string, toPosition: number): void {
     const from = this.#waiting.findIndex((song) => song.id === songId);
@@ -679,33 +677,13 @@ export class SongQueue {
       this.#waiting.splice(to, 0, song);
       return;
     }
-    // Where the first In turn Song stands once the moved Song is out.
-    const firstInTurn = this.#waiting.findIndex(
-      (waiting) => waiting.position !== "next",
-    );
-    song.position =
-      to <= (firstInTurn === -1 ? this.#waiting.length : firstInTurn)
-        ? "next"
-        : "inTurn";
     this.#waiting.splice(to, 0, song);
     this.#onChange?.();
   }
 
-  /** Puts a waiting Song ahead of every In turn Song, behind earlier Next ones. */
+  /** Makes a waiting Song the first to play after what is on air. */
   moveToNext(songId: string): void {
-    const from = this.#waiting.findIndex((song) => song.id === songId);
-    if (from === -1) return;
-    const [song] = this.#waiting.splice(from, 1);
-    song.position = "next";
-    const firstInTurn = this.#waiting.findIndex(
-      (waiting) => waiting.position !== "next",
-    );
-    this.#waiting.splice(
-      firstInTurn === -1 ? this.#waiting.length : firstInTurn,
-      0,
-      song,
-    );
-    this.#onChange?.();
+    this.reorder(songId, 1);
   }
 
   /** Ends what is on air; a Fallback Track is skipped, with no Song Event. */
@@ -883,7 +861,6 @@ export class SongQueue {
         url: song.url,
         requesterName: song.requesterName,
         duration: song.duration ?? null,
-        place: song.position === "next" ? "next" : "inTurn",
         eta: this.#etaOf(song) ?? null,
       })),
     };
@@ -970,20 +947,13 @@ export class SongQueue {
       ...resolution.track,
       ...metadata,
       id: this.#newId(),
-      position: options.position === "next" ? "next" : "inTurn",
       requestOrder: ++this.#requestOrder,
       // The bounds it was accepted with travel with it: without the API
       // Key its duration is learned only at its Start Check (ADR-0005).
       durationBounds: durationBoundsOf(currentRules()),
     };
-    const firstInTurn = this.#waiting.findIndex(
-      (waiting) => waiting.position !== "next",
-    );
-    if (song.position === "next" && firstInTurn !== -1) {
-      this.#waiting.splice(firstInTurn, 0, song);
-    } else {
-      this.#waiting.push(song);
-    }
+    if (options.position === "next") this.#waiting.unshift(song);
+    else this.#waiting.push(song);
     this.#advance();
 
     const position = this.#waiting.indexOf(song) + 1;

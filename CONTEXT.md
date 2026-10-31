@@ -95,16 +95,15 @@ _Avoid_: track (a Provider's item, before it is accepted), video (YouTube's
 word), request.
 
 **Song Queue**:
-The plugin's single list of Songs waiting, in order of arrival with the Next
-ones ahead. The plugin owns it and keeps it across restarts of the plugin and
-of Fluxta.
+The plugin's single ordered list of Songs waiting. The streamer can change
+its order, which the plugin keeps across restarts of the plugin and of Fluxta.
 _Avoid_: queue alone (the host's Event Queue and Custom Queue order runs),
 playlist (a Provider's), Spotify's queue.
 
 **Position**:
-Where Request Song puts its Song: **In turn**, the end of the Song Queue, or
-**Next**, ahead of every In turn Song and behind other Next ones. Nothing
-interrupts the Current Song.
+Where Request Song inserts its Song: **In turn**, the end of the Song Queue,
+or **Next**, its beginning, before every waiting Song. It gives the Song no
+lasting status and never interrupts the Current Song.
 _Avoid_: priority.
 
 **Current Song**:

@@ -143,7 +143,6 @@ describe("the editors' messages", () => {
             url: "fake://two",
             requesterName: "viewer",
             duration: null,
-            place: "inTurn",
             eta: null,
           },
         ],

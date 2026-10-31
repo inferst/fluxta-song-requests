@@ -48,9 +48,7 @@ export type Playable = Track & {
 /** A Request accepted into the Song Queue. */
 export type Song = Playable &
   RequestMetadata & {
-    /** Next Songs precede In turn Songs without interrupting the Current Song. */
-    position?: "inTurn" | "next";
-    /** Arrival order, independent of the Song's place among Next Songs. */
+    /** Arrival order, independent of the Song's current place in the Song Queue. */
     requestOrder?: number;
     /**
      * The duration bounds it was accepted with — its step's Overrides

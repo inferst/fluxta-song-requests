@@ -1517,32 +1517,38 @@ describe("the Plugin Editor's Now and the queue", () => {
     ]);
   });
 
-  it("gives a moved Song the Position its new neighbourhood implies", async () => {
+  it("inserts around the manual order without keeping Next and In turn groups", async () => {
     const { provider } = fakeProvider("fake");
     const queue = songQueue(provider);
-    const one = songOf(await queue.request("fake:one@100"));
+    await queue.request("fake:one@100");
     const two = songOf(await queue.request("fake:two@100"));
-    const three = songOf(await queue.request("fake:three@100"));
-
-    // Ahead of the first In turn Song a moved Song is Next…
-    queue.reorder(three.id, 1);
-    expect(queue.snapshot().waiting.map((song) => song.position)).toEqual([
-      "next",
-      "inTurn",
-      "inTurn",
+    const three = songOf(
+      await queue.request("fake:three@100", undefined, { position: "next" }),
+    );
+    await queue.request("fake:four@100", undefined, { position: "next" });
+    queue.reorder(three.id, 4);
+    queue.reorder(two.id, 1);
+    expect(queue.snapshot().waiting.map((song) => song.title)).toEqual([
+      "two",
+      "four",
+      "one",
+      "three",
     ]);
-
-    // …behind one it is In turn, without touching the others.
-    queue.reorder(one.id, 3);
-    expect(queue.snapshot().waiting.map((song) => song.position)).toEqual([
-      "next",
-      "inTurn",
-      "inTurn",
+    await queue.request("fake:five@100", undefined, { position: "next" });
+    await queue.request("fake:six@100");
+    expect(queue.snapshot().waiting.map((song) => song.title)).toEqual([
+      "five",
+      "two",
+      "four",
+      "one",
+      "three",
+      "six",
     ]);
-    void two;
+    for (const song of queue.snapshot().waiting)
+      expect(song).not.toHaveProperty("position");
   });
 
-  it("moves a waiting Song ahead of every In turn Song, behind earlier Next ones", async () => {
+  it("moves a waiting Song first, ahead of every other waiting Song", async () => {
     const { provider } = fakeProvider("fake");
     const queue = songQueue(provider);
     await queue.request("fake:one@100");
@@ -1560,21 +1566,17 @@ describe("the Plugin Editor's Now and the queue", () => {
 
     queue.moveToNext("song-1");
     expect(queue.snapshot().waiting.map((song) => song.title)).toEqual([
-      "three",
-      "four",
       "one",
+      "four",
+      "three",
       "two",
     ]);
-    expect(
-      queue.snapshot().waiting.map((song) => song.position ?? "inTurn"),
-    ).toEqual(["next", "next", "next", "inTurn"]);
 
-    // Behind every earlier Next one — `one` moved to Next before it.
     queue.moveToNext(three.id);
     expect(queue.snapshot().waiting.map((song) => song.title)).toEqual([
-      "four",
-      "one",
       "three",
+      "one",
+      "four",
       "two",
     ]);
     void four;
@@ -1624,13 +1626,11 @@ describe("the Plugin Editor's Now and the queue", () => {
         {
           id: "song-2",
           title: "two",
-          place: "inTurn",
           duration: 100,
           eta: 190,
         },
         {
           title: "unknown",
-          place: "inTurn",
           duration: null,
           // Its own duration is not needed for the eta — only the Songs
           // ahead of it are: 190 left of the Current Song, then 100.

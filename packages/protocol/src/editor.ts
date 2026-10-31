@@ -60,8 +60,6 @@ const WaitingSongSchema = z.object({
   requesterName: z.string(),
   /** In seconds; `null` until its Player reports it at its Start Check. */
   duration: z.number().nullable(),
-  /** How it arrived: Next Songs precede In turn Songs. */
-  place: z.enum(["next", "inTurn"]),
   /**
    * Seconds until it should start — what is left of what is on air and
    * every Song ahead; `null` when a duration it needs is not known.
@@ -187,7 +185,7 @@ const EditorMessageSchema = z.discriminatedUnion("event", [
     songId: z.string(),
     toPosition: z.number().int().positive(),
   }),
-  /** Puts a waiting Song ahead of every In turn Song, behind earlier Next ones. */
+  /** Makes a waiting Song first, without interrupting what is on air. */
   z.object({ event: z.literal("move-song-next"), songId: z.string() }),
   /** Drops a waiting Song as removed — the Remove Song Action by `songId`. */
   z.object({ event: z.literal("remove-song"), songId: z.string() }),
