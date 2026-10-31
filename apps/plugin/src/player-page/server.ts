@@ -9,7 +9,10 @@ import {
 import type { AddressInfo, Socket } from "node:net";
 import { extname, join } from "node:path";
 
-import { REPLACED_CLOSE_CODE } from "song-requests-protocol";
+import {
+  KEY_CHANGED_CLOSE_CODE,
+  REPLACED_CLOSE_CODE,
+} from "song-requests-protocol";
 import { WebSocketServer, type WebSocket } from "ws";
 
 import type { PageSocket } from "./page-player";
@@ -56,11 +59,46 @@ function hasKey(url: URL, playerKey: string): boolean {
   return given.length === expected.length && timingSafeEqual(given, expected);
 }
 
+/**
+ * Whether a WebSocket may open from `origin`. A browser page from anywhere
+ * else on the web could otherwise drive the player with a leaked Player Key;
+ * the page's own origin is `http://localhost:<port>`, and a request without
+ * an Origin header is not from a browser at all, so there is nothing to
+ * check.
+ */
+function ownOrigin(origin: string | undefined, port: number): boolean {
+  if (origin === undefined) return true;
+  try {
+    const url = new URL(origin);
+    const originPort = url.port
+      ? Number(url.port)
+      : url.protocol === "https:"
+        ? 443
+        : 80;
+    return (
+      (url.protocol === "http:" || url.protocol === "https:") &&
+      (url.hostname === "localhost" ||
+        url.hostname === "127.0.0.1" ||
+        url.hostname === "[::1]" ||
+        url.hostname === "::1") &&
+      originPort === port
+    );
+  } catch {
+    return false;
+  }
+}
+
+/** The close reasons a page understands, by their WebSocket close code. */
+const CLOSE_REASONS: Record<number, string> = {
+  [REPLACED_CLOSE_CODE]: "replaced",
+  [KEY_CHANGED_CLOSE_CODE]: "key changed",
+};
+
 /** A `ws` socket, narrowed to what the Player Page's Player needs. */
 function pageSocket(socket: WebSocket): PageSocket {
   return {
     send: (text) => socket.send(text),
-    close: () => socket.close(REPLACED_CLOSE_CODE, "replaced"),
+    close: (code) => socket.close(code, CLOSE_REASONS[code]),
     onMessage: (listener) =>
       socket.on("message", (data, isBinary) => {
         if (!isBinary) listener(data.toString());
@@ -86,7 +124,8 @@ function listen(server: Server, port: number, host: string): Promise<void> {
 
 /**
  * Serves the Player Page and its WebSocket on loopback. Without the Player
- * Key the page and the WebSocket answer 403.
+ * Key the page and the WebSocket answer 403, as does a WebSocket from
+ * another origin; the page cannot be framed (ADR-0001).
  */
 export async function startPlayerPageServer(
   options: PlayerPageServerOptions,
@@ -96,6 +135,9 @@ export async function startPlayerPageServer(
     noServer: true,
     maxPayload: MAX_MESSAGE_BYTES,
   });
+  // The port the first server ends up bound to — what a WebSocket's Origin
+  // header is checked against. An upgrade can only arrive after listening.
+  let boundPort = options.port;
 
   function upgrade(request: IncomingMessage, socket: Socket, head: Buffer) {
     const url = new URL(request.url ?? "/", "http://localhost");
@@ -105,6 +147,10 @@ export async function startPlayerPageServer(
       return;
     }
     if (!hasKey(url, playerKey())) {
+      refuseUpgrade(socket, 403);
+      return;
+    }
+    if (!ownOrigin(request.headers.origin, boundPort)) {
       refuseUpgrade(socket, 403);
       return;
     }
@@ -126,6 +172,9 @@ export async function startPlayerPageServer(
         .writeHead(200, {
           "content-type": "text/html; charset=utf-8",
           "cache-control": "no-store",
+          // Another site cannot frame the page and drive the player with a
+          // leaked Player Key (ADR-0001).
+          "content-security-policy": "frame-ancestors 'none'",
         })
         .end(page);
       return;
@@ -168,6 +217,7 @@ export async function startPlayerPageServer(
   await listen(first, options.port, LOOPBACKS[0]);
   servers.push(first);
   const port = (first.address() as AddressInfo).port;
+  boundPort = port;
 
   const second = serve();
   try {

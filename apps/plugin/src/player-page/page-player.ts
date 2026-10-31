@@ -1,5 +1,7 @@
 import {
   isPageMessage,
+  KEY_CHANGED_CLOSE_CODE,
+  REPLACED_CLOSE_CODE,
   type PageMessage,
   type SidecarMessage,
 } from "song-requests-protocol";
@@ -17,8 +19,11 @@ const PLAYLIST_TIMEOUT_MS = 10_000;
 /** One Player Page's WebSocket, as narrow as the Player needs it. */
 export interface PageSocket {
   send(text: string): void;
-  /** Another page took over: this one stops, and stays closed. */
-  close(): void;
+  /**
+   * Closed with a code the page understands: another page took over, or the
+   * Player Key changed. Either way this one stops, and stays closed.
+   */
+  close(code: number): void;
   onMessage(listener: (text: string) => void): void;
   onClose(listener: () => void): void;
 }
@@ -83,9 +88,18 @@ export class PagePlayer implements Player {
       this.#tellConnection();
     });
 
-    before?.close();
+    before?.close(REPLACED_CLOSE_CODE);
     this.#tellConnection();
     if (this.ready) this.#events?.ready();
+  }
+
+  /**
+   * The Player Key was replaced: the open page is closed for good — the
+   * address it holds no longer works — and what is on air waits, as with
+   * any disconnect, until the page opened at the new address connects.
+   */
+  closeForKeyChange(): void {
+    this.#page?.close(KEY_CHANGED_CLOSE_CODE);
   }
 
   play(song: Playable, { muted, startAt, paused, volume }: PlayOptions): void {

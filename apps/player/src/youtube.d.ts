@@ -24,6 +24,11 @@ declare namespace YT {
       onReady?: (event: PlayerEvent) => void;
       onStateChange?: (event: OnStateChangeEvent) => void;
       onError?: (event: OnErrorEvent) => void;
+      /**
+       * The browser blocked autoplay with sound (its policy, unlike OBS's);
+       * the page asks for one click and then may play (spike #3).
+       */
+      onAutoplayBlocked?: () => void;
     };
   }
 

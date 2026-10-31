@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import {
+  KEY_CHANGED_CLOSE_CODE,
+  REPLACED_CLOSE_CODE,
+} from "song-requests-protocol";
+
 import type { PlayerEvents, Song } from "../songs/provider";
 import { SongQueue } from "../songs/song-queue";
 import { DataApi } from "../youtube/data-api";
@@ -10,6 +15,7 @@ import { PagePlayer, type PageSocket } from "./page-player";
 class FakeSocket implements PageSocket {
   readonly sent: unknown[] = [];
   closed = false;
+  closedWith: number | undefined;
   #onMessage?: (text: string) => void;
   #onClose?: () => void;
 
@@ -17,8 +23,9 @@ class FakeSocket implements PageSocket {
     this.sent.push(JSON.parse(text));
   }
 
-  close() {
+  close(code?: number) {
     this.closed = true;
+    this.closedWith = code;
     this.#onClose?.();
   }
 
@@ -460,11 +467,36 @@ describe("the Player Page's Player", () => {
     before.says({ event: "ended", songId: "song-1" });
 
     expect(before.closed).toBe(true);
+    expect(before.closedWith).toBe(REPLACED_CLOSE_CODE);
     expect(before.sent).toEqual([]);
     expect(after.sent).toHaveLength(1);
     expect(player.ready).toBe(true);
     expect(heard).toEqual(["ready", "ready"]);
     expect(connected.at(-1)).toBe(true);
+  });
+
+  it("closes the page for good when the Player Key is replaced", () => {
+    const player = new PagePlayer();
+    const heard = listen(player);
+    const connected: boolean[] = [];
+    player.onConnectionChange((value) => connected.push(value));
+    const page = new FakeSocket();
+    player.connect(page);
+
+    player.closeForKeyChange();
+
+    expect(page.closed).toBe(true);
+    expect(page.closedWith).toBe(KEY_CHANGED_CLOSE_CODE);
+    expect(player.ready).toBe(false);
+    // The Song on air waits at its position, as with any disconnect, until
+    // the page opened at the new address connects.
+    expect(heard).toEqual(["ready", "disconnected"]);
+    expect(connected).toEqual([true, false]);
+
+    const next = new FakeSocket();
+    player.connect(next);
+    expect(player.ready).toBe(true);
+    expect(heard.at(-1)).toBe("ready");
   });
 
   it("cues a playlist to list it, and answers with the ids the page lists", async () => {

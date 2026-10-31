@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { PluginSettings } from "../settings";
-import { ensurePlayerKey } from "./player-key";
+import { ensurePlayerKey, newPlayerKey } from "./player-key";
 
 function settingsStore() {
   const saved: PluginSettings[] = [];
@@ -37,5 +37,12 @@ describe("the Player Key", () => {
     const two = await ensurePlayerKey({}, async () => {});
 
     expect(one).not.toBe(two);
+  });
+
+  it("is replaced with a fresh one", () => {
+    const key = newPlayerKey();
+
+    expect(key).toMatch(/^[A-Za-z0-9_-]{32,}$/);
+    expect(newPlayerKey()).not.toBe(key);
   });
 });

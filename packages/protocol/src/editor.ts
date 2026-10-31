@@ -125,6 +125,8 @@ const PlaybackStatusSchema = z.object({
 const PluginStatusSchema = z.object({
   /** Where OBS opens the Player Page, Player Key included. */
   playerUrl: z.string(),
+  /** The port the Player Page answers on; the Settings change it. */
+  playerPort: z.number().int().positive(),
   /** Whether a Player Page is connected to the sidecar now. */
   playerConnected: z.boolean(),
   apiKey: ApiKeyStatusSchema,
@@ -179,6 +181,16 @@ const EditorMessageSchema = z.discriminatedUnion("event", [
   z.object({
     event: z.literal("set-fallback-playlist"),
     playlist: z.string().max(500),
+  }),
+  /**
+   * Replaces the Player Key with a fresh one: every open Player Page stops,
+   * and the Plugin Editor shows the new address to copy into OBS.
+   */
+  z.object({ event: z.literal("replace-player-key") }),
+  /** The port the Player Page serves on, 1–65535; the page listens on loopback only. */
+  z.object({
+    event: z.literal("set-player-port"),
+    port: z.number().int().min(1).max(65535),
   }),
   /** Pause, resume or toggle — the Playback Action's modes. */
   z.object({

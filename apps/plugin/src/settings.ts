@@ -6,6 +6,8 @@ import type { BlocklistEntry, RuleDefaults } from "song-requests-protocol";
 
 export type PluginSettings = {
   playerKey?: string;
+  /** The port the Player Page serves on; the default where the streamer set none. */
+  playerPort?: number;
   /** The streamer's YouTube Data API Key; it never reaches a log line or an editor. */
   apiKey?: string;
   /** The Region the streamer picked; absent to follow the computer's. */

@@ -3,9 +3,16 @@ import { randomBytes } from "node:crypto";
 import type { PluginSettings } from "../settings";
 
 /**
+ * A fresh Player Key: 192 random bits, URL-safe, since it travels in the
+ * Player Page's address.
+ */
+export function newPlayerKey(): string {
+  return randomBytes(24).toString("base64url");
+}
+
+/**
  * The Player Key: made once, on the first start, and kept in Plugin settings
- * so the address in OBS stays the same. 192 random bits, URL-safe, since it
- * travels in the Player Page's address.
+ * so the address in OBS stays the same, until the streamer replaces it.
  */
 export async function ensurePlayerKey(
   settings: PluginSettings,
@@ -15,7 +22,7 @@ export async function ensurePlayerKey(
     return settings.playerKey;
   }
 
-  const playerKey = randomBytes(24).toString("base64url");
+  const playerKey = newPlayerKey();
   // `setPluginSettings` replaces the whole object, so the rest goes with it.
   await save({ ...settings, playerKey });
   return playerKey;
