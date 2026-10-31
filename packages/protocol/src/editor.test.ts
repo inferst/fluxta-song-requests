@@ -117,9 +117,57 @@ describe("the editors' messages", () => {
         { kind: "channel", channelUrl: "https://www.youtube.com/@x" },
       ],
       fallbackPlaylist: "https://www.youtube.com/playlist?list=PLx0sYbCqOb8",
+      playback: {
+        now: 1735689600000,
+        isPlaying: true,
+        isPaused: false,
+        playerState: "playing",
+        volume: 80,
+        requestsOpen: true,
+        current: {
+          id: "song-1",
+          title: "one",
+          channel: "fake channel",
+          url: "fake://one",
+          requesterName: "viewer",
+          isFallback: false,
+          duration: 180,
+          position: 12,
+          atStartCheck: false,
+        },
+        waiting: [
+          {
+            id: "song-2",
+            title: "two",
+            channel: "fake channel",
+            url: "fake://two",
+            requesterName: "viewer",
+            duration: null,
+            eta: null,
+          },
+        ],
+      },
     };
 
     expect(isPluginMessage({ event: "status", status })).toBe(true);
+    expect(
+      isPluginMessage({
+        event: "status",
+        status: {
+          ...status,
+          playback: { ...status.playback, isPlaying: false },
+        },
+      }),
+    ).toBe(true);
+    expect(
+      isPluginMessage({
+        event: "status",
+        status: {
+          ...status,
+          playback: { ...status.playback, isPlaying: "playing" },
+        },
+      }),
+    ).toBe(false);
     expect(
       isPluginMessage({ event: "status", status: { playerConnected: true } }),
     ).toBe(false);
@@ -129,6 +177,68 @@ describe("the editors' messages", () => {
         status: { ...status, apiKey: { state: "lost", masked: "" } },
       }),
     ).toBe(false);
+    expect(
+      isPluginMessage({
+        event: "status",
+        status: {
+          ...status,
+          playback: { ...status.playback, waiting: [{ id: "x" }] },
+        },
+      }),
+    ).toBe(false);
     expect(isPluginMessage({ event: "get-status" })).toBe(false);
+  });
+
+  it("accepts the Now and the queue controls, and nothing short of them", () => {
+    expect(isEditorMessage({ event: "playback", mode: "toggle" })).toBe(true);
+    expect(isEditorMessage({ event: "playback", mode: "hold" })).toBe(false);
+    expect(isEditorMessage({ event: "skip" })).toBe(true);
+    expect(isEditorMessage({ event: "set-volume", volume: 50 })).toBe(true);
+    expect(isEditorMessage({ event: "set-volume", volume: 101 })).toBe(false);
+    expect(isEditorMessage({ event: "set-requests-open", open: false })).toBe(
+      true,
+    );
+    expect(
+      isEditorMessage({ event: "reorder-song", songId: "x", toPosition: 2 }),
+    ).toBe(true);
+    expect(
+      isEditorMessage({ event: "reorder-song", songId: "x", toPosition: 0 }),
+    ).toBe(false);
+    expect(isEditorMessage({ event: "move-song-next", songId: "x" })).toBe(
+      true,
+    );
+    expect(isEditorMessage({ event: "remove-song", songId: "x" })).toBe(true);
+    expect(isEditorMessage({ event: "block-song", songId: "x" })).toBe(true);
+    expect(
+      isEditorMessage({ event: "request-song", request: "fake:one" }),
+    ).toBe(true);
+    expect(isEditorMessage({ event: "request-song", request: "" })).toBe(false);
+  });
+
+  it("accepts the answer to the streamer's Request", () => {
+    expect(
+      isPluginMessage({
+        event: "request-answer",
+        answer: { kind: "accepted", position: 2, eta: 300 },
+      }),
+    ).toBe(true);
+    expect(
+      isPluginMessage({
+        event: "request-answer",
+        answer: { kind: "accepted", position: 0, eta: null },
+      }),
+    ).toBe(true);
+    expect(
+      isPluginMessage({
+        event: "request-answer",
+        answer: { kind: "refused", reason: "too-long" },
+      }),
+    ).toBe(true);
+    expect(
+      isPluginMessage({
+        event: "request-answer",
+        answer: { kind: "refused", reason: "rude" },
+      }),
+    ).toBe(false);
   });
 });

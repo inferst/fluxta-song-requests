@@ -85,7 +85,7 @@ describe("the State file", () => {
       volume: 0,
     });
   });
-  it("restores Requests Open, Next order and arrival order through a real State file", async () => {
+  it("restores Requests Open, manual order and arrival order through a real State file", async () => {
     const { provider } = fakeProvider();
     let id = 0;
     const queue = new SongQueue({
@@ -100,6 +100,7 @@ describe("the State file", () => {
     };
     await queue.request("fake:in-turn@100", requester);
     await queue.request("fake:next@100", requester, { position: "next" });
+    queue.reorder("1", 1);
     queue.requests("close");
     await new StateFile(file).save(queue.snapshot());
     const loaded = await new StateFile(file).load();
@@ -109,6 +110,10 @@ describe("the State file", () => {
       initial: loaded.snapshot,
     });
     expect(restored.requestsOpen).toBe(false);
+    expect(restored.snapshot().waiting.map((song) => song.title)).toEqual([
+      "in-turn",
+      "next",
+    ]);
     expect(await restored.request("fake:closed@100")).toEqual({
       kind: "refused",
       reason: "closed",
@@ -118,11 +123,11 @@ describe("the State file", () => {
       await restored.request("fake:new-next@100", requester, {
         position: "next",
       }),
-    ).toMatchObject({ position: 2 });
+    ).toMatchObject({ position: 1 });
     expect(restored.snapshot().waiting.map((song) => song.title)).toEqual([
-      "next",
       "new-next",
       "in-turn",
+      "next",
     ]);
     const latest = {
       kind: "requesterLatest" as const,
@@ -154,6 +159,50 @@ describe("the State file", () => {
 
     expect((await fs.readFile(file, "utf8")).startsWith("{")).toBe(true);
     expect(await state.load()).toEqual({ snapshot, recovered: false });
+  });
+
+  it("reads old Next and In turn fields without losing the saved order", async () => {
+    await fs.mkdir(path.dirname(file), { recursive: true });
+    await fs.writeFile(
+      file,
+      JSON.stringify({
+        version: 1,
+        ...snapshot,
+        waiting: [
+          {
+            ...song,
+            id: "song-2",
+            trackId: "two",
+            title: "Two",
+            position: "inTurn",
+          },
+          { ...song, position: "next" },
+        ],
+      }),
+    );
+
+    const loaded = await new StateFile(file).load();
+    expect(loaded.recovered).toBe(false);
+    expect(loaded.snapshot?.waiting.map((song) => song.title)).toEqual([
+      "Two",
+      "One",
+    ]);
+    for (const song of loaded.snapshot!.waiting)
+      expect(song).not.toHaveProperty("position");
+
+    const restored = new SongQueue({
+      providers: [fakeProvider().provider],
+      newId: () => "song-3",
+      initial: loaded.snapshot,
+    });
+    expect(
+      await restored.request("fake:three@100", undefined, { position: "next" }),
+    ).toMatchObject({ position: 1 });
+    expect(restored.snapshot().waiting.map((song) => song.title)).toEqual([
+      "three",
+      "Two",
+      "One",
+    ]);
   });
 
   it("reads a file written before the History as an empty one", async () => {

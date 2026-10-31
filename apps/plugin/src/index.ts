@@ -172,6 +172,7 @@ function status(): PluginStatus {
     } satisfies RuleDefaults,
     blocklist: (settings?.blocklist ?? []) as BlocklistEntry[],
     fallbackPlaylist: settings?.fallbackPlaylist ?? "",
+    playback: queue.editorPlayback(),
   };
 }
 
@@ -216,6 +217,31 @@ function publish(): void {
   } satisfies PluginMessage);
 }
 
+/**
+ * The streamer's own Request from the Plugin Editor's add field: checked as
+ * Request Song with the Defaults — no Requester, so the per-Requester Rules
+ * do not count it — and answered to the editor, accepted or refused.
+ */
+async function requestFromEditor(request: string): Promise<void> {
+  const answer = await queue.request(request, {
+    requesterPlatform: "",
+    requesterId: "",
+    requesterName: "",
+    reference: "",
+  });
+  plugin.sendToEditor({
+    event: "request-answer",
+    answer:
+      answer.kind === "accepted"
+        ? {
+            kind: "accepted",
+            position: answer.position,
+            eta: answer.eta ?? null,
+          }
+        : { kind: "refused", reason: answer.reason },
+  } satisfies PluginMessage);
+}
+
 /** `setPluginSettings` replaces the whole object, so a change goes in with the rest. */
 function saveSettings(change: Partial<PluginSettings>): void {
   if (!settings) return;
@@ -243,6 +269,55 @@ plugin.onReceiveFromEditor((message: unknown) => {
   switch (message.event) {
     case "get-status":
       publish();
+      return;
+
+    case "playback":
+      // The Now section's Pause and Resume: what the Playback Action does.
+      queue.playback(message.mode);
+      publish();
+      return;
+
+    case "skip":
+      queue.skip();
+      publish();
+      return;
+
+    case "set-volume":
+      queue.setVolume(message.volume);
+      publish();
+      return;
+
+    case "set-requests-open":
+      // What the Requests Action does in its open and close modes.
+      queue.requests(message.open ? "open" : "close");
+      publish();
+      return;
+
+    case "reorder-song":
+      queue.reorder(message.songId, message.toPosition);
+      publish();
+      return;
+
+    case "move-song-next":
+      queue.moveToNext(message.songId);
+      publish();
+      return;
+
+    case "remove-song":
+      // What the Remove Song Action does by `songId`: Song Dropped, `removed`.
+      queue.remove({ kind: "songId", songId: message.songId });
+      publish();
+      return;
+
+    case "block-song":
+      // What the Block Song Action does by `songId`: the track goes into
+      // the Blocklist and the Songs it covers leave the Song Queue.
+      queue.blockSong({ kind: "songId", songId: message.songId }, "track");
+      publish();
+      return;
+
+    case "request-song":
+      void requestFromEditor(message.request);
       return;
 
     case "set-api-key": {

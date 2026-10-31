@@ -61,7 +61,7 @@ export function RequestSongEditor() {
           { value: "inTurn", label: "In turn" },
           { value: "next", label: "Next" },
         ]}
-        hint="Next goes ahead of every In turn Song, behind earlier Next ones. The Current Song plays on."
+        hint="In turn adds to the end. Next adds to the beginning, before every waiting Song. The Current Song plays on."
       />
       <OverridesSection
         values={values.overrides ?? {}}

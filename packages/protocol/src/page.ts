@@ -17,6 +17,15 @@ import { z } from "zod";
  */
 export const REPLACED_CLOSE_CODE = 4000;
 
+/** Observed playback; Pause and Play also update the Song Queue's pause state. */
+export const PlayerPlaybackStateSchema = z.enum([
+  "playing",
+  "paused",
+  "buffering",
+  "loading",
+]);
+export type PlayerPlaybackState = z.infer<typeof PlayerPlaybackStateSchema>;
+
 const SidecarMessageSchema = z.discriminatedUnion("event", [
   /**
    * `muted` for a Song at its Start Check, which is not heard until `unmute`.
@@ -54,6 +63,13 @@ const SidecarMessageSchema = z.discriminatedUnion("event", [
 ]);
 
 const PageMessageSchema = z.discriminatedUnion("event", [
+  /** The player's own controls and buffering change whether progress advances. */
+  z.object({
+    event: z.literal("playback"),
+    songId: z.string(),
+    state: PlayerPlaybackStateSchema,
+    position: z.number().nonnegative(),
+  }),
   /**
    * The video plays, and the player knows it: `duration` is the player's
    * own, in seconds, and `live` whether the video is a live stream — whose

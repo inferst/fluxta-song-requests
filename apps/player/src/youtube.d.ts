@@ -63,6 +63,8 @@ declare namespace YT {
      * long it has been on.
      */
     getDuration(): number;
+    getCurrentTime(): number;
+    getPlayerState(): number;
     getVideoData(): VideoData;
     destroy(): void;
   }

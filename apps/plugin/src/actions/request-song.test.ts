@@ -88,7 +88,7 @@ function requestSong() {
 }
 
 describe("Request Song", () => {
-  it("puts Next Songs behind earlier Next ones and ahead of In turn Songs without interrupting playback", async () => {
+  it("inserts each Next Song first without interrupting playback", async () => {
     const { run, start, queue } = requestSong();
     await run({ request: "fake:current@100" });
     start();
@@ -98,11 +98,11 @@ describe("Request Song", () => {
     ).toMatchObject({ position: 1, eta: 100 });
     expect(
       await run({ request: "fake:second-next@100", position: "next" }),
-    ).toMatchObject({ position: 2, eta: 200 });
+    ).toMatchObject({ position: 1, eta: 100 });
     expect(queue.snapshot().current?.song.title).toBe("current");
     expect(queue.snapshot().waiting.map((song) => song.title)).toEqual([
-      "first-next",
       "second-next",
+      "first-next",
       "in-turn",
     ]);
   });

@@ -12,6 +12,7 @@ export type RequestSongSettings = {
   requesterId?: string;
   requesterName?: string;
   reference?: string;
+  /** Where to insert: the end (In turn) or the beginning (Next) of the Song Queue. */
   position?: "inTurn" | "next";
   /** Per Rule: follow the Default, a value of its own, or do not check. */
   overrides?: RequestSongOverrides;

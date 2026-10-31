@@ -48,9 +48,7 @@ export type Playable = Track & {
 /** A Request accepted into the Song Queue. */
 export type Song = Playable &
   RequestMetadata & {
-    /** Next Songs precede In turn Songs without interrupting the Current Song. */
-    position?: "inTurn" | "next";
-    /** Arrival order, independent of the Song's place among Next Songs. */
+    /** Arrival order, independent of the Song's current place in the Song Queue. */
     requestOrder?: number;
     /**
      * The duration bounds it was accepted with — its step's Overrides
@@ -70,26 +68,16 @@ export type FallbackTrack = Playable;
 export type SongDroppedReason =
   "unavailable" | "too-long" | "too-short" | "removed" | "cleared" | "blocked";
 
-/** Why a Request did not become a Song. */
-export type RefusalReason =
-  | "not-found"
-  | "not-embeddable"
-  | "age-restricted"
-  | "region-blocked"
-  | "live"
-  | "no-api-key"
-  | "api-key-invalid"
-  | "quota-exhausted"
-  | "provider-unavailable"
-  | "closed"
-  | "too-long"
-  | "too-short"
-  | "requester-limit"
-  | "queue-full"
-  | "already-queued"
-  | "recently-played"
-  | "blocked"
-  | "not-music";
+/**
+ * Why a Request did not become a Song. The canonical list lives in
+ * `song-requests-protocol`: the Plugin Editor shows a Refusal's reason.
+ */
+import type {
+  RefusalReason,
+  PlayerPlaybackState,
+} from "song-requests-protocol";
+
+export type { RefusalReason };
 
 export type Resolution =
   { kind: "track"; track: Track } | { kind: "refused"; reason: RefusalReason };
@@ -102,6 +90,8 @@ export type ResolveOptions = {
 
 /** What a Player tells the Song Queue. */
 export interface PlayerEvents {
+  /** Actual playback and position, including the Player's own controls. */
+  playback(songId: string, state: PlayerPlaybackState, position: number): void;
   /** It can play now — a Player Page connected. */
   ready(): void;
   /** Its Player Page went away; playback waits at the last position. */

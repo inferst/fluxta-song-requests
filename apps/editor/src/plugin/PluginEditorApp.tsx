@@ -1,12 +1,16 @@
 import { EditorPage, PluginEditorLayout } from "@fluxta/sdk/ui";
 
+import { NowSection } from "./NowSection";
 import { PlayerPageSection } from "./PlayerPageSection";
+import { QueueSection } from "./QueueSection";
 import { RulesSection } from "./RulesSection";
 import { SettingsSection } from "./SettingsSection";
 import { usePluginStatus } from "./usePluginStatus";
+import { useSongRequest } from "./useSongRequest";
 
 export function PluginEditorApp() {
   const { status, sidecarSilent } = usePluginStatus();
+  const request = useSongRequest();
 
   if (!status) {
     return (
@@ -43,10 +47,29 @@ export function PluginEditorApp() {
             ]
           : []),
         {
+          id: "now",
+          label: "Now",
+          tone:
+            status.playback.current || status.playback.isPaused
+              ? status.playback.isPlaying
+                ? ("ok" as const)
+                : ("idle" as const)
+              : undefined,
+          content: <NowSection playback={status.playback} />,
+        },
+        {
           id: "player",
           label: "Player",
           tone: status.playerConnected ? "ok" : "idle",
           content: <PlayerPageSection status={status} />,
+        },
+        {
+          id: "queue",
+          label: "Song Queue",
+          count: status.playback.waiting.length,
+          content: (
+            <QueueSection playback={status.playback} request={request} />
+          ),
         },
         {
           id: "rules",

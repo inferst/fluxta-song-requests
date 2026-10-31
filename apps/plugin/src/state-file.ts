@@ -37,7 +37,6 @@ const SongSchema = z.object({
   requesterName: z.string(),
   reference: z.string(),
   id: z.string(),
-  position: z.enum(["inTurn", "next"]).optional(),
   requestOrder: z.number().int().nonnegative().optional(),
   durationBounds: z
     .object({

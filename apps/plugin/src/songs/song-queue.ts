@@ -1,6 +1,8 @@
 import {
   FALLBACK_RULE_DEFAULTS,
   type BlocklistEntry,
+  type PlaybackStatus,
+  type PlayerPlaybackState,
   type RequestSongOverrides,
   type RuleDefaults,
 } from "song-requests-protocol";
@@ -64,6 +66,7 @@ type OnAir = {
   /** It has been heard, so its end is Song Ended rather than Song Dropped. */
   started: boolean;
   loaded?: boolean;
+  playerState?: PlayerPlaybackState;
   /** When it began to play, by `Date.now()`; unset until its Player says so. */
   since?: number;
   /** How far it has played, in seconds, as of `since`. */
@@ -211,6 +214,8 @@ export class SongQueue {
 
     for (const provider of providers) {
       provider.player.attach({
+        playback: (songId, state, position) =>
+          this.#playbackChanged(songId, state, position),
         ready: () => this.#resume(provider),
         disconnected: () => this.#disconnected(provider),
         loaded: (songId, duration, title) =>
@@ -270,6 +275,8 @@ export class SongQueue {
         current.resumeAt = this.#positionOf(current);
       }
       this.#start(current, provider.player);
+      // A replacement page is ready before it has loaded the Current Song.
+      this.#onChange?.();
       return;
     }
     this.#advance();
@@ -283,6 +290,30 @@ export class SongQueue {
     }
     current.since = undefined;
     current.loaded = false;
+    current.playerState = undefined;
+    this.#onChange?.();
+  }
+
+  #playbackChanged(
+    songId: string,
+    state: PlayerPlaybackState,
+    position: number,
+  ): void {
+    const current = this.#current;
+    if (!current || trackOf(current).id !== songId) return;
+    current.playerState = state;
+    // Pause and Play from a Player update the same state as the Playback
+    // Action. Buffering is a wait, and must not change that decision.
+    if (state === "paused") this.#paused = true;
+    else if (state === "playing") this.#paused = false;
+    if (current.loaded && !current.atStartCheck) {
+      current.position = position;
+      current.since = state === "playing" ? Date.now() : undefined;
+      if (state === "playing" && !current.started) {
+        current.started = true;
+        if (current.kind === "song") this.#onStarted?.(current.song);
+      }
+    }
     this.#onChange?.();
   }
 
@@ -465,6 +496,7 @@ export class SongQueue {
    */
   #start(current: OnAir, player: Player): void {
     current.loaded = false;
+    current.playerState = undefined;
     current.since = undefined;
     if (current.resumeAt !== undefined) {
       current.position = current.resumeAt;
@@ -628,6 +660,32 @@ export class SongQueue {
     return matches;
   }
 
+  /**
+   * Moves a waiting Song to another place in the Song Queue — the drag in
+   * the Plugin Editor. `toPosition` is 1-based among the waiting Songs.
+   * Only the order changes; the Current Song is not touched.
+   */
+  reorder(songId: string, toPosition: number): void {
+    const from = this.#waiting.findIndex((song) => song.id === songId);
+    if (from === -1) return;
+    const [song] = this.#waiting.splice(from, 1);
+    const to = Math.min(
+      this.#waiting.length,
+      Math.max(0, Math.round(toPosition) - 1),
+    );
+    if (to === from) {
+      this.#waiting.splice(to, 0, song);
+      return;
+    }
+    this.#waiting.splice(to, 0, song);
+    this.#onChange?.();
+  }
+
+  /** Makes a waiting Song the first to play after what is on air. */
+  moveToNext(songId: string): void {
+    this.reorder(songId, 1);
+  }
+
   /** Ends what is on air; a Fallback Track is skipped, with no Song Event. */
   skip(): Playable | undefined {
     const current = this.#current;
@@ -644,7 +702,7 @@ export class SongQueue {
     return current.song;
   }
 
-  /** The explicit pause is independent of whether a Player is connected. */
+  /** Pause is shared with the Player's own controls and survives disconnection. */
   playback(mode: "pause" | "resume" | "toggle"): boolean {
     const paused =
       mode === "pause"
@@ -666,7 +724,12 @@ export class SongQueue {
       if (paused) player?.pause();
       else {
         player?.resume();
-        if (current.loaded && player?.ready) {
+        if (
+          current.loaded &&
+          player?.ready &&
+          (current.playerState === undefined ||
+            current.playerState === "playing")
+        ) {
           current.since = Date.now();
           if (!current.started) {
             current.started = true;
@@ -730,16 +793,22 @@ export class SongQueue {
     }
   }
 
+  #isPlaying(): boolean {
+    const current = this.#current;
+    return Boolean(
+      current?.started &&
+      current.loaded &&
+      current.since !== undefined &&
+      !this.#paused &&
+      this.#playerOf(trackOf(current))?.ready,
+    );
+  }
+
   /** State read by Standalone Query Sources; waiting durations exclude what is on air. */
   status() {
     const current = this.#current;
     return {
-      isPlaying: Boolean(
-        current?.started &&
-        current.loaded &&
-        !this.#paused &&
-        this.#playerOf(trackOf(current))?.ready,
-      ),
+      isPlaying: this.#isPlaying(),
       isPaused: this.#paused,
       playerConnected: this.#providers.some(
         ({ player }) => player.connected ?? player.ready,
@@ -754,6 +823,46 @@ export class SongQueue {
         0,
       ),
       volume: this.#volume,
+    };
+  }
+
+  /**
+   * What the Plugin Editor's Now and the queue sections render. Sent with
+   * every status; `now` lets the editor tick the progress from its own
+   * clock — it runs on this computer.
+   */
+  editorPlayback(): PlaybackStatus {
+    const current = this.#current;
+    return {
+      now: Date.now(),
+      isPlaying: this.#isPlaying(),
+      isPaused: this.#paused,
+      playerState: current?.playerState ?? null,
+      volume: this.#volume,
+      requestsOpen: this.requestsOpen,
+      current: current
+        ? {
+            id: trackOf(current).id,
+            title: trackOf(current).title,
+            channel: trackOf(current).channel,
+            url: trackOf(current).url,
+            requesterName:
+              current.kind === "song" ? current.song.requesterName : "",
+            isFallback: current.kind === "fallback",
+            duration: trackOf(current).duration ?? null,
+            position: this.#positionOf(current),
+            atStartCheck: current.atStartCheck,
+          }
+        : null,
+      waiting: this.#waiting.map((song) => ({
+        id: song.id,
+        title: song.title,
+        channel: song.channel,
+        url: song.url,
+        requesterName: song.requesterName,
+        duration: song.duration ?? null,
+        eta: this.#etaOf(song) ?? null,
+      })),
     };
   }
 
@@ -838,20 +947,13 @@ export class SongQueue {
       ...resolution.track,
       ...metadata,
       id: this.#newId(),
-      position: options.position === "next" ? "next" : "inTurn",
       requestOrder: ++this.#requestOrder,
       // The bounds it was accepted with travel with it: without the API
       // Key its duration is learned only at its Start Check (ADR-0005).
       durationBounds: durationBoundsOf(currentRules()),
     };
-    const firstInTurn = this.#waiting.findIndex(
-      (waiting) => waiting.position !== "next",
-    );
-    if (song.position === "next" && firstInTurn !== -1) {
-      this.#waiting.splice(firstInTurn, 0, song);
-    } else {
-      this.#waiting.push(song);
-    }
+    if (options.position === "next") this.#waiting.unshift(song);
+    else this.#waiting.push(song);
     this.#advance();
 
     const position = this.#waiting.indexOf(song) + 1;

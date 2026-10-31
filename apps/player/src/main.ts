@@ -15,6 +15,8 @@ import {
 
 const ENDED = 0;
 const PLAYING = 1;
+const PAUSED = 2;
+const BUFFERING = 3;
 const CUED = 5;
 const RECONNECT_MS = { first: 1_000, max: 10_000 };
 /** How soon to look again for a duration the player does not know yet. */
@@ -86,6 +88,8 @@ function start(target: YT.Player): void {
 function report(): void {
   clearTimeout(retry);
   if (!player || !current || current.reported) return;
+  // A duration retry can outlive a pause or buffering; it must not announce playback.
+  if (player.getPlayerState() !== PLAYING) return;
 
   const data = player.getVideoData();
   let live = data.isLive === true;
@@ -116,6 +120,25 @@ function report(): void {
     duration,
     live,
     title: data.title ?? "",
+  });
+  reportPlayback(player, player.getPlayerState());
+}
+
+function reportPlayback(target: YT.Player, state: number): void {
+  if (!current || target.getVideoData().video_id !== current.videoId) return;
+  send({
+    event: "playback",
+    songId: current.songId,
+    state:
+      state === PAUSED || (state === CUED && paused)
+        ? "paused"
+        : state === BUFFERING
+          ? "buffering"
+          : state === PLAYING
+            ? "playing"
+            : "loading",
+    // The muted Start Check is discarded when the Song is heard from its start.
+    position: current.muted ? 0 : target.getCurrentTime(),
   });
 }
 
@@ -169,9 +192,30 @@ function createPlayer(): YT.Player {
             ids: Array.isArray(ids) ? ids : [],
           });
         }
+        // The Player's own controls can override a command from the sidecar.
+        // Only the current video may change the shared pause state.
+        if (
+          current &&
+          event.target.getVideoData().video_id === current.videoId
+        ) {
+          if (event.data === PLAYING) paused = false;
+          else if (event.data === PAUSED) paused = true;
+        }
         if (event.data === PLAYING) {
-          if (paused) event.target.pauseVideo();
-          else report();
+          if (current?.reported) reportPlayback(event.target, event.data);
+          else {
+            report();
+            // The Start Check may still be learning the duration, but its
+            // Pause and Play controls must already reach the Plugin Editor.
+            if (!current?.reported) reportPlayback(event.target, event.data);
+          }
+        } else if (
+          event.data === PAUSED ||
+          event.data === BUFFERING ||
+          event.data === CUED
+        ) {
+          if (current?.muted) current.first = undefined;
+          reportPlayback(event.target, event.data);
         }
         if (event.data === ENDED && current) {
           send({ event: "ended", songId: current.songId });

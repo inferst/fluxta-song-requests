@@ -42,6 +42,8 @@ class FakeSocket implements PageSocket {
 function listen(player: PagePlayer) {
   const heard: string[] = [];
   const events: PlayerEvents = {
+    playback: (songId, state, position) =>
+      heard.push(`playback ${songId} ${state} ${position}`),
     ready: () => heard.push("ready"),
     disconnected: () => heard.push("disconnected"),
     loaded: (songId, duration) => heard.push(`loaded ${songId} ${duration}`),
@@ -68,6 +70,241 @@ const song: Song = {
 
 describe("the Player Page's Player", () => {
   afterEach(() => vi.useRealTimers());
+  it("synchronizes Pause and Play during a muted Start Check without counting its position", async () => {
+    const player = new PagePlayer();
+    const started = vi.fn();
+    const queue = new SongQueue({
+      providers: [
+        {
+          id: "youtube",
+          player,
+          claims: () => true,
+          resolve: async () => ({ kind: "track", track: song }),
+        },
+      ],
+      newId: () => "song-1",
+      onStarted: started,
+    });
+    const page = new FakeSocket();
+    player.connect(page);
+    await queue.request("one");
+
+    page.says({
+      event: "playback",
+      songId: "song-1",
+      state: "paused",
+      position: 1.5,
+    });
+    expect(queue.editorPlayback()).toMatchObject({
+      isPaused: true,
+      playerState: "paused",
+      isPlaying: false,
+      current: { position: 0, atStartCheck: true },
+    });
+    expect(queue.snapshot().isPaused).toBe(true);
+    page.says({
+      event: "playback",
+      songId: "song-1",
+      state: "buffering",
+      position: 1.5,
+    });
+    expect(queue.status().isPaused).toBe(true);
+    page.says({
+      event: "playback",
+      songId: "song-1",
+      state: "playing",
+      position: 1.5,
+    });
+    expect(queue.editorPlayback()).toMatchObject({
+      isPaused: false,
+      isPlaying: false,
+      current: { position: 0 },
+    });
+    expect(started).not.toHaveBeenCalled();
+
+    page.says({
+      event: "loaded",
+      songId: "song-1",
+      duration: 200,
+      live: false,
+    });
+    expect(page.sent.at(-1)).toEqual({ event: "unmute", songId: "song-1" });
+    expect(started).toHaveBeenCalledTimes(1);
+    expect(queue.editorPlayback().current?.position).toBe(0);
+  });
+
+  it("starts a restored paused Song when Play comes from the Player, without echoing a command", () => {
+    const player = new PagePlayer();
+    const started = vi.fn();
+    const queue = new SongQueue({
+      providers: [
+        { id: "youtube", player, claims: () => true, resolve: vi.fn() },
+      ],
+      newId: () => "unused",
+      initial: {
+        isPaused: true,
+        waiting: [],
+        history: [],
+        current: {
+          song: { ...song, duration: 200 },
+          atStartCheck: false,
+          started: false,
+          position: 0,
+        },
+      },
+      onStarted: started,
+    });
+    const page = new FakeSocket();
+    player.connect(page);
+    expect(page.sent.at(-1)).toMatchObject({ event: "load", paused: true });
+    page.says({
+      event: "loaded",
+      songId: "song-1",
+      duration: 200,
+      live: false,
+    });
+    expect(started).not.toHaveBeenCalled();
+    const commands = page.sent.length;
+    page.says({
+      event: "playback",
+      songId: "song-1",
+      state: "playing",
+      position: 0,
+    });
+    expect(queue.editorPlayback()).toMatchObject({
+      isPlaying: true,
+      isPaused: false,
+    });
+    page.says({
+      event: "playback",
+      songId: "song-1",
+      state: "playing",
+      position: 5,
+    });
+    expect(started).toHaveBeenCalledTimes(1);
+    expect(page.sent).toHaveLength(commands);
+  });
+  it.each([false, true])(
+    "keeps progress in sync with the Player's own pause, resume and buffering (Fallback=%s)",
+    async (fallback) => {
+      vi.useFakeTimers();
+      const player = new PagePlayer();
+      const started = vi.fn();
+      const queue = new SongQueue({
+        providers: [
+          {
+            id: "youtube",
+            player,
+            claims: () => true,
+            resolve: async () => ({
+              kind: "track",
+              track: { ...song, duration: 200 },
+            }),
+          },
+        ],
+        newId: () => "song-1",
+        onStarted: started,
+      });
+      const page = new FakeSocket();
+      player.connect(page);
+      if (fallback) queue.setFallbackTracks([{ ...song, duration: 200 }]);
+      else await queue.request("one");
+      page.says({
+        event: "playback",
+        songId: "song-1",
+        state: "playing",
+        position: 100,
+      });
+      expect(queue.editorPlayback()).toMatchObject({
+        isPlaying: false,
+        current: { position: 0 },
+      });
+      page.says({
+        event: "loaded",
+        songId: "song-1",
+        duration: 200,
+        live: false,
+      });
+      vi.advanceTimersByTime(10_000);
+
+      page.says({
+        event: "playback",
+        songId: "song-1",
+        state: "paused",
+        position: 10.5,
+      });
+      vi.advanceTimersByTime(30_000);
+      expect(queue.editorPlayback()).toMatchObject({
+        isPlaying: false,
+        isPaused: true,
+        current: { position: 10.5 },
+        playerState: "paused",
+      });
+      expect(queue.snapshot().current?.position).toBe(
+        fallback ? undefined : 10.5,
+      );
+
+      queue.playback("resume");
+      expect(page.sent.at(-1)).toEqual({ event: "resume" });
+      expect(queue.editorPlayback().isPlaying).toBe(false);
+
+      page.says({
+        event: "playback",
+        songId: "song-1",
+        state: "playing",
+        position: 11,
+      });
+      vi.advanceTimersByTime(5_000);
+      expect(queue.editorPlayback()).toMatchObject({
+        isPlaying: true,
+        current: { position: 16 },
+        playerState: "playing",
+      });
+
+      page.says({
+        event: "playback",
+        songId: "song-1",
+        state: "buffering",
+        position: 16,
+      });
+      page.says({
+        event: "playback",
+        songId: "old-song",
+        state: "playing",
+        position: 100,
+      });
+      vi.advanceTimersByTime(10_000);
+      expect(queue.editorPlayback()).toMatchObject({
+        isPlaying: false,
+        current: { position: 16 },
+        playerState: "buffering",
+      });
+
+      queue.playback("pause");
+      page.says({
+        event: "playback",
+        songId: "song-1",
+        state: "paused",
+        position: 16,
+      });
+      const commands = page.sent.length;
+      page.says({
+        event: "playback",
+        songId: "song-1",
+        state: "playing",
+        position: 16,
+      });
+      vi.advanceTimersByTime(10_000);
+      expect(queue.editorPlayback()).toMatchObject({
+        isPlaying: true,
+        isPaused: false,
+        current: { position: 26 },
+      });
+      expect(page.sent).toHaveLength(commands);
+      expect(queue.snapshot().isPaused).toBe(false);
+      expect(started).toHaveBeenCalledTimes(fallback ? 0 : 1);
+    },
+  );
   it("sends the volume with a load and applies later volume changes", () => {
     const player = new PagePlayer();
     const page = new FakeSocket();
