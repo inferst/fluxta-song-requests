@@ -67,6 +67,22 @@ const WaitingSongSchema = z.object({
   eta: z.number().nullable(),
 });
 
+/** One Song that left the air, as the Plugin Editor's History lists it. */
+const HistoryEntrySchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  channel: z.string(),
+  /** A link to it a viewer can open. */
+  url: z.string(),
+  requesterName: z.string(),
+  /** In seconds; `null` for one whose duration stayed unknown. */
+  duration: z.number().nullable(),
+  /** How it left the air — Song Ended's `how`. */
+  how: z.enum(["finished", "failed", "skipped"]),
+  /** When it left the air, in ms since the epoch (`Date.now()`). */
+  at: z.number(),
+});
+
 /** What is on air now, as the Plugin Editor's Now section renders it. */
 const NowPlayingSchema = z.object({
   /** The Current Song's id, or the Fallback Track's. */
@@ -131,6 +147,8 @@ const PluginStatusSchema = z.object({
   blocklist: z.array(BlocklistEntrySchema),
   /** The Fallback Playlist's link as saved, `""` for none. */
   fallbackPlaylist: z.string(),
+  /** The Songs that left the air, newest first — what the History section renders. */
+  history: z.array(HistoryEntrySchema),
   /** What the Now and the queue sections render; republished on every change. */
   playback: PlaybackStatusSchema,
 });
@@ -192,6 +210,21 @@ const EditorMessageSchema = z.discriminatedUnion("event", [
   /** Blocks a waiting Song's track — the Block Song Action by `songId`. */
   z.object({ event: z.literal("block-song"), songId: z.string() }),
   /**
+   * Queues a History Song again — the streamer's own Request, checked with
+   * the Defaults. Answered with `queue-again-answer` (#14).
+   */
+  z.object({ event: z.literal("queue-again"), songId: z.string() }),
+  /**
+   * Blocks a History Song's track or channel — what Block Song does: the
+   * entry goes into the Blocklist and waiting Songs it covers are dropped
+   * (#14).
+   */
+  z.object({
+    event: z.literal("block-history-song"),
+    songId: z.string(),
+    kind: z.enum(["track", "channel"]),
+  }),
+  /**
    * The streamer's own Request: a link or search words, checked as Request
    * Song with the Defaults. Answered with `request-answer`.
    */
@@ -223,6 +256,15 @@ const PluginMessageSchema = z.discriminatedUnion("event", [
     event: z.literal("request-answer"),
     answer: StreamerRequestAnswerSchema,
   }),
+  /**
+   * What became of queueing a History Song again: its place in the Song
+   * Queue, or the Refusal's reason (#14).
+   */
+  z.object({
+    event: z.literal("queue-again-answer"),
+    songId: z.string(),
+    answer: StreamerRequestAnswerSchema,
+  }),
 ]);
 
 /** Why a Request did not become a Song. */
@@ -233,6 +275,9 @@ export type WaitingSong = z.infer<typeof WaitingSongSchema>;
 
 /** What is on air now, as the Plugin Editor's Now section renders it. */
 export type NowPlaying = z.infer<typeof NowPlayingSchema>;
+
+/** One Song that left the air, as the Plugin Editor's History lists it. */
+export type HistoryEntry = z.infer<typeof HistoryEntrySchema>;
 
 /** The Now and the queue part of the status: what plays, and what waits. */
 export type PlaybackStatus = z.infer<typeof PlaybackStatusSchema>;
