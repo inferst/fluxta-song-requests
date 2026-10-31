@@ -1,5 +1,6 @@
 import {
   isSidecarMessage,
+  KEY_CHANGED_CLOSE_CODE,
   REPLACED_CLOSE_CODE,
   type PageMessage,
   type SidecarMessage,
@@ -10,7 +11,9 @@ import {
  * (ADR-0001). It does only what the sidecar says — load a video, which plays
  * at once unless paused, muted for a Song's Start Check; unmute it; pause,
  * resume, change volume or stop — and reports how
- * that went. The Song Queue lives in the sidecar.
+ * that went. The Song Queue lives in the sidecar. A browser, unlike OBS,
+ * blocks autoplay with sound until the page has been clicked once; it asks
+ * for that click (spike #3).
  */
 
 const ENDED = 0;
@@ -55,6 +58,8 @@ let current:
 let retry: ReturnType<typeof setTimeout> | undefined;
 /** The playlist a `cue` asked to list, waiting for the player to load it. */
 let listing: { playlistId: string; requestId: string } | undefined;
+/** Whether the note is the click-to-start gate a browser's autoplay policy demanded. */
+let gate = false;
 
 function send(message: PageMessage): void {
   if (socket?.readyState === WebSocket.OPEN) {
@@ -148,6 +153,9 @@ function load(
   muted: boolean,
   startAt: number,
 ): void {
+  // A new instruction supersedes a gate the browser has not been clicked
+  // through: what plays next is decided anew.
+  dismissGate();
   current = { songId, videoId, muted, startAt, reported: false };
   listing = undefined;
   clearTimeout(retry);
@@ -233,6 +241,10 @@ function createPlayer(): YT.Player {
           send({ event: "error", songId: current.songId, code: event.data });
         }
       },
+      onAutoplayBlocked: () => {
+        clearTimeout(retry);
+        showGate();
+      },
     },
   });
 }
@@ -252,6 +264,7 @@ function unmute(songId: string): void {
 }
 
 function stop(): void {
+  dismissGate();
   current = undefined;
   listing = undefined;
   clearTimeout(retry);
@@ -303,16 +316,49 @@ function obey(message: SidecarMessage): void {
   }
 }
 
-/** Another page took over: this one stops for good. */
-function replaced(): void {
+/**
+ * A browser, unlike OBS, blocks autoplay with sound until the page has been
+ * clicked (spike #3). The one click unblocks every later load too: the
+ * browser remembers the gesture for the page.
+ */
+function showGate(): void {
+  gate = true;
+  note.textContent = "Click to start the player.";
+  note.style.cursor = "pointer";
+  note.style.display = "grid";
+}
+
+/** Hides the click-to-start gate, when it is up; a no-op otherwise. */
+function dismissGate(): void {
+  gate = false;
+  note.style.display = "none";
+  note.style.cursor = "";
+}
+
+/** Another page took over, or the Player Key changed: this one stops for good. */
+function stopForGood(text: string): void {
+  gate = false;
   player?.destroy();
   player = undefined;
   playerReady = false;
   current = undefined;
   listing = undefined;
   clearTimeout(retry);
-  note.textContent = "The player is open elsewhere.";
+  note.style.cursor = "";
+  note.textContent = text;
   note.style.display = "grid";
+}
+
+/** Another page took over: this one stops for good. */
+function replaced(): void {
+  stopForGood("The player is open elsewhere.");
+}
+
+/** The Player Key changed: this address no longer works. */
+function keyChanged(): void {
+  stopForGood(
+    "The Player Key changed. Copy the new address from the plugin's tab in Fluxta.",
+  );
 }
 
 function connect(delay = RECONNECT_MS.first): void {
@@ -342,6 +388,10 @@ function connect(delay = RECONNECT_MS.first): void {
       replaced();
       return;
     }
+    if (event.code === KEY_CHANGED_CLOSE_CODE) {
+      keyChanged();
+      return;
+    }
     stop();
     // The plugin restarting, or Fluxta closed: try again, more slowly each
     // time it fails, at once after a connection that worked.
@@ -364,5 +414,12 @@ window.onYouTubeIframeAPIReady = () => {
 const api = document.createElement("script");
 api.src = "https://www.youtube.com/iframe_api";
 document.head.append(api);
+
+note.addEventListener("click", () => {
+  if (!gate) return;
+  dismissGate();
+  // The gesture the browser waited for: what was loading blocked goes on.
+  if (playerReady && current && !paused) player?.playVideo();
+});
 
 connect();

@@ -51,6 +51,59 @@ describe("the Player Page's server", () => {
     expect((await page("?key=another-key")).status).toBe(403);
   });
 
+  it("forbids framing the page on another site", async () => {
+    const { port } = await start();
+
+    const served = await fetch(`http://localhost:${port}/player?key=${KEY}`);
+
+    expect(served.headers.get("content-security-policy")).toBe(
+      "frame-ancestors 'none'",
+    );
+  });
+
+  it("refuses a WebSocket from another origin, and accepts its own", async () => {
+    const { port } = await start();
+    const path = `/ws?key=${KEY}`;
+
+    expect(
+      await upgradeStatus(port, path, {
+        origin: `http://localhost:${port}`,
+      }),
+    ).toBe(101);
+    expect(
+      await upgradeStatus(port, path, {
+        origin: `http://127.0.0.1:${port}`,
+      }),
+    ).toBe(101);
+    expect(await upgradeStatus(port, path)).toBe(101);
+    expect(
+      await upgradeStatus(port, path, { origin: "https://another.site" }),
+    ).toBe(403);
+    expect(
+      await upgradeStatus(port, path, {
+        origin: `http://localhost:${port + 1}`,
+      }),
+    ).toBe(403);
+    expect(await upgradeStatus(port, path, { origin: "not a url" })).toBe(403);
+  });
+
+  it("closes a page's WebSocket with the code it is closed by", async () => {
+    const pages: PageSocket[] = [];
+    const { port } = await start((page) => pages.push(page));
+    const client = new WebSocket(`ws://localhost:${port}/ws?key=${KEY}`);
+    await new Promise((resolve) => client.addEventListener("open", resolve));
+    await until(() => pages.length === 1);
+
+    const closed = new Promise<number>((resolve) =>
+      client.addEventListener("close", (event) =>
+        resolve((event as { code: number }).code),
+      ),
+    );
+    pages[0].close(4001);
+
+    await expect(closed).resolves.toBe(4001);
+  });
+
   it("answers on both loopbacks localhost may resolve to", async () => {
     const { port } = await start();
 
@@ -107,10 +160,42 @@ describe("the Player Page's server", () => {
     expect(await upgradeStatus(port, "/ws?key=another-key")).toBe(403);
     expect(pages).toEqual([]);
   });
+
+  it("reads the Player Key as it stands: a replaced one refuses the old address", async () => {
+    let key = KEY;
+    const pages: PageSocket[] = [];
+    server = await startPlayerPageServer({
+      port: 0,
+      pageDir,
+      playerKey: () => key,
+      onPage: (page) => pages.push(page),
+    });
+    const { port } = server;
+
+    expect(
+      await upgradeStatus(port, `/ws?key=${KEY}`, {
+        origin: `http://localhost:${port}`,
+      }),
+    ).toBe(101);
+
+    key = "the-next-key";
+    expect(await upgradeStatus(port, `/ws?key=${KEY}`)).toBe(403);
+    expect(await upgradeStatus(port, `/ws?key=the-next-key`)).toBe(101);
+    expect(
+      (await fetch(`http://localhost:${port}/player?key=${KEY}`)).status,
+    ).toBe(403);
+    expect(
+      (await fetch(`http://localhost:${port}/player?key=the-next-key`)).status,
+    ).toBe(200);
+  });
 });
 
 /** The status a WebSocket upgrade request is answered with. */
-function upgradeStatus(port: number, path: string): Promise<number> {
+function upgradeStatus(
+  port: number,
+  path: string,
+  headers: Record<string, string> = {},
+): Promise<number> {
   return new Promise((resolve, reject) => {
     const request = httpRequest({
       host: "localhost",
@@ -121,6 +206,7 @@ function upgradeStatus(port: number, path: string): Promise<number> {
         upgrade: "websocket",
         "sec-websocket-key": "dGhlIHNhbXBsZSBub25jZQ==",
         "sec-websocket-version": "13",
+        ...headers,
       },
     });
     request.on("response", (response) => {

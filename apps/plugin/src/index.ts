@@ -31,8 +31,11 @@ import {
   toSongStartedPayload,
 } from "./events";
 import { PagePlayer } from "./player-page/page-player";
-import { ensurePlayerKey } from "./player-page/player-key";
-import { startPlayerPageServer } from "./player-page/server";
+import { ensurePlayerKey, newPlayerKey } from "./player-page/player-key";
+import {
+  startPlayerPageServer,
+  type PlayerPageServer,
+} from "./player-page/server";
 import { plugin } from "./plugin";
 import type { PluginSettings } from "./settings";
 import { SongQueue } from "./songs/song-queue";
@@ -44,8 +47,12 @@ import { createYouTubeProvider } from "./youtube/provider";
 import { systemRegion } from "./youtube/region";
 import { SearchCache } from "./youtube/search-cache";
 
-/** Fixed, so the address in OBS stays the same; the Settings change it later (#15). */
-const PLAYER_PORT = 29362;
+/**
+ * The port the Player Page serves on when the Settings hold none. It stays
+ * fixed by default, so the address in OBS stays the same; the Plugin Editor
+ * changes it.
+ */
+const DEFAULT_PLAYER_PORT = 29362;
 
 /** The Player Page's build, beside this bundle in the Built Plugin Folder. */
 const PAGE_DIR = fileURLToPath(new URL("./player/", import.meta.url));
@@ -154,13 +161,66 @@ for (const source of createPlaybackSources(queue))
 // have been read — so it starts out unknown.
 let playerKey: string | undefined = undefined;
 
+/** The Player Page's server, once it could listen; swapped on a port change. */
+let pageServer: PlayerPageServer | undefined;
+
+/** The port the Player Page answers on: the served one, else the configured. */
+function servedPort(): number {
+  return pageServer?.port ?? settings?.playerPort ?? DEFAULT_PLAYER_PORT;
+}
+
+/**
+ * Serves the Player Page on `port`; the server it replaces, if any, closes
+ * once the new one answers, so a port another program holds leaves the page
+ * where it was. Whether it worked, every editor is told again — the status
+ * names the port that answers, or the configured one when none does.
+ */
+async function swapPlayerPageServer(port: number): Promise<boolean> {
+  try {
+    const next = await startPlayerPageServer({
+      port,
+      pageDir: PAGE_DIR,
+      playerKey: () => playerKey ?? "",
+      onPage: (page) => pagePlayer.connect(page),
+    });
+    const previous = pageServer;
+    pageServer = next;
+    await previous?.close();
+    console.log(`The Player Page is served on localhost:${next.port}`);
+    return true;
+  } catch (error) {
+    // Another program holds the port. With the old server still answering
+    // nothing changes; with no old server, Request Song still queues, and
+    // nothing plays until a free port is set.
+    const code = (error as NodeJS.ErrnoException).code ?? String(error);
+    console.error(`The Player Page cannot listen on port ${port}: ${code}`);
+    return false;
+  } finally {
+    publish();
+  }
+}
+
+// One port change at a time, in the order they arrived: each swap binds its
+// new server before the last closes, so two must not overlap.
+let serving: Promise<void> = Promise.resolve();
+function servePlayerPageOn(port: number): void {
+  serving = serving.then(async () => {
+    // The setting is written only once the new port answers; a taken port
+    // leaves the page where it was.
+    if (await swapPlayerPageServer(port)) {
+      saveSettings({ playerPort: port });
+    }
+  });
+}
+
 function status(): PluginStatus {
   return {
     // Always `localhost`, never an IP: YouTube refuses to play on a page
     // addressed by one (spike #3).
     playerUrl: playerKey
-      ? `http://localhost:${PLAYER_PORT}/player?key=${playerKey}`
+      ? `http://localhost:${servedPort()}/player?key=${playerKey}`
       : "",
+    playerPort: servedPort(),
     playerConnected: pagePlayer.connected,
     apiKey: dataApi.status(),
     region: { chosen: chosenRegion(), system: SYSTEM_REGION },
@@ -378,6 +438,24 @@ plugin.onReceiveFromEditor((message: unknown) => {
       return;
     }
 
+    case "replace-player-key": {
+      if (!settings) return;
+      playerKey = newPlayerKey();
+      saveSettings({ playerKey });
+      // Every open page holds an address that no longer works: it stops for
+      // good, and the new address is shown to copy into OBS.
+      pagePlayer.closeForKeyChange();
+      publish();
+      return;
+    }
+
+    case "set-player-port": {
+      if (!settings) return;
+      if (message.port === servedPort()) return;
+      servePlayerPageOn(message.port);
+      return;
+    }
+
     case "set-region":
       if (!settings) return;
       saveSettings({ region: message.region ?? undefined });
@@ -434,21 +512,4 @@ dataApi.setKey(typeof settings.apiKey === "string" ? settings.apiKey : "");
 void dataApi.check();
 scheduleFallbackLearning();
 
-try {
-  await startPlayerPageServer({
-    port: PLAYER_PORT,
-    pageDir: PAGE_DIR,
-    playerKey: () => playerKey ?? "",
-    onPage: (page) => pagePlayer.connect(page),
-  });
-  console.log(`The Player Page is served on localhost:${PLAYER_PORT}`);
-} catch (error) {
-  // Another program holds the port; Request Song still queues, and nothing
-  // plays until the plugin is restarted with the port free.
-  const code = (error as NodeJS.ErrnoException).code ?? String(error);
-  console.error(
-    `The Player Page cannot listen on port ${PLAYER_PORT}: ${code}`,
-  );
-}
-
-publish();
+await swapPlayerPageServer(servedPort());

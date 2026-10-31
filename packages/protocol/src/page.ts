@@ -17,6 +17,13 @@ import { z } from "zod";
  */
 export const REPLACED_CLOSE_CODE = 4000;
 
+/**
+ * The WebSocket close code a page is closed with when the streamer replaced
+ * the Player Key: the address the page holds no longer works, so it stops
+ * for good instead of reconnecting.
+ */
+export const KEY_CHANGED_CLOSE_CODE = 4001;
+
 /** Observed playback; Pause and Play also update the Song Queue's pause state. */
 export const PlayerPlaybackStateSchema = z.enum([
   "playing",

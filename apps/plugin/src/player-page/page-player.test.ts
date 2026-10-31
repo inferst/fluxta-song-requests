@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import {
+  KEY_CHANGED_CLOSE_CODE,
+  REPLACED_CLOSE_CODE,
+} from "song-requests-protocol";
+
 import type { PlayerEvents, Song } from "../songs/provider";
 import { SongQueue } from "../songs/song-queue";
 import { DataApi } from "../youtube/data-api";
@@ -10,6 +15,7 @@ import { PagePlayer, type PageSocket } from "./page-player";
 class FakeSocket implements PageSocket {
   readonly sent: unknown[] = [];
   closed = false;
+  closedWith: number | undefined;
   #onMessage?: (text: string) => void;
   #onClose?: () => void;
 
@@ -17,8 +23,9 @@ class FakeSocket implements PageSocket {
     this.sent.push(JSON.parse(text));
   }
 
-  close() {
+  close(code?: number) {
     this.closed = true;
+    this.closedWith = code;
     this.#onClose?.();
   }
 
@@ -460,11 +467,103 @@ describe("the Player Page's Player", () => {
     before.says({ event: "ended", songId: "song-1" });
 
     expect(before.closed).toBe(true);
+    expect(before.closedWith).toBe(REPLACED_CLOSE_CODE);
     expect(before.sent).toEqual([]);
     expect(after.sent).toHaveLength(1);
     expect(player.ready).toBe(true);
     expect(heard).toEqual(["ready", "ready"]);
     expect(connected.at(-1)).toBe(true);
+  });
+
+  it("closes the page for good when the Player Key is replaced", () => {
+    const player = new PagePlayer();
+    const heard = listen(player);
+    const connected: boolean[] = [];
+    player.onConnectionChange((value) => connected.push(value));
+    const page = new FakeSocket();
+    player.connect(page);
+
+    player.closeForKeyChange();
+
+    expect(page.closed).toBe(true);
+    expect(page.closedWith).toBe(KEY_CHANGED_CLOSE_CODE);
+    expect(player.ready).toBe(false);
+    // The Song on air waits at its position, as with any disconnect, until
+    // the page opened at the new address connects.
+    expect(heard).toEqual(["ready", "disconnected"]);
+    expect(connected).toEqual([true, false]);
+
+    const next = new FakeSocket();
+    player.connect(next);
+    expect(player.ready).toBe(true);
+    expect(heard.at(-1)).toBe("ready");
+  });
+
+  it("revokes the page before its key-change close handshake finishes", () => {
+    const player = new PagePlayer();
+    const heard = listen(player);
+    const connected: boolean[] = [];
+    player.onConnectionChange((value) => connected.push(value));
+    const page = new FakeSocket();
+    const close = vi.spyOn(page, "close").mockImplementation(() => {});
+    player.connect(page);
+    player.play(song, { muted: false });
+
+    player.closeForKeyChange();
+    page.says({ event: "ended", songId: song.id });
+    page.says({ event: "error", songId: song.id, code: 150 });
+    page.says({
+      event: "playback",
+      songId: song.id,
+      state: "playing",
+      position: 100,
+    });
+    page.says({
+      event: "loaded",
+      songId: song.id,
+      duration: 200,
+      live: false,
+    });
+    player.pause();
+
+    expect(close).toHaveBeenCalledWith(KEY_CHANGED_CLOSE_CODE);
+    expect(player.connected).toBe(false);
+    expect(player.ready).toBe(false);
+    expect(heard).toEqual(["ready", "disconnected"]);
+    expect(connected).toEqual([true, false]);
+    expect(page.sent).toHaveLength(1);
+
+    const next = new FakeSocket();
+    player.connect(next);
+    close.mockRestore();
+    page.close(KEY_CHANGED_CLOSE_CODE);
+    page.says({ event: "ended", songId: song.id });
+    player.play(song, { muted: false });
+
+    expect(player.ready).toBe(true);
+    expect(heard).toEqual(["ready", "disconnected", "ready"]);
+    expect(connected).toEqual([true, false, true]);
+    expect(next.sent).toHaveLength(1);
+  });
+
+  it("cancels a playlist listing without waiting for the key-change close handshake", async () => {
+    vi.useFakeTimers();
+    const player = new PagePlayer();
+    const heard = listen(player);
+    const page = new FakeSocket();
+    vi.spyOn(page, "close").mockImplementation(() => {});
+    player.connect(page);
+    const listed = vi.fn();
+    void player.listPlaylist("PLold").then(listed);
+
+    player.closeForKeyChange();
+    page.says({ event: "cued", requestId: "1", ids: ["old"] });
+    await Promise.resolve();
+
+    expect(listed).toHaveBeenCalledExactlyOnceWith([]);
+    expect(vi.getTimerCount()).toBe(0);
+    expect(player.connected).toBe(false);
+    expect(heard).toEqual(["ready", "disconnected"]);
   });
 
   it("cues a playlist to list it, and answers with the ids the page lists", async () => {
