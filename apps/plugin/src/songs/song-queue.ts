@@ -1,6 +1,7 @@
 import {
   FALLBACK_RULE_DEFAULTS,
   type BlocklistEntry,
+  type HistoryEntry as EditorHistoryEntry,
   type PlaybackStatus,
   type PlayerPlaybackState,
   type RequestSongOverrides,
@@ -534,7 +535,28 @@ export class SongQueue {
             this.#current.song.id === target.songId
           ? this.#current.song
           : this.#waiting.find((song) => song.id === target.songId);
-    if (!song || !this.#onBlock) return undefined;
+    if (!song) return undefined;
+    return this.#block(song, kind);
+  }
+
+  /**
+   * Blocks a History Song's track or channel — the Plugin Editor's History
+   * (#14): the same Blocklist entry and the same drops as Block Song, which
+   * is what Block Song does by `songId` for a waiting or Current Song. The
+   * History itself is left as it is.
+   */
+  blockHistorySong(
+    songId: string,
+    kind: "track" | "channel",
+  ): Song | undefined {
+    const entry = this.#history.find((entry) => entry.song.id === songId);
+    if (!entry) return undefined;
+    return this.#block(entry.song, kind);
+  }
+
+  /** What Block Song and the History's block share: the entry and the drops. */
+  #block(song: Song, kind: "track" | "channel"): Song | undefined {
+    if (!this.#onBlock) return undefined;
     const entry: BlocklistEntry =
       kind === "track"
         ? { kind: "track", provider: song.provider, trackId: song.trackId }
@@ -561,6 +583,18 @@ export class SongQueue {
       else this.#drop(current, true, "blocked");
     } else this.#advance();
     return song;
+  }
+
+  /**
+   * Queues a History Song again — the Plugin Editor's History (#14): its
+   * link is requested as the streamer's own, checked with the Defaults the
+   * way the add field's Request is. `undefined` names a Song the History no
+   * longer holds.
+   */
+  queueAgain(songId: string): Promise<RequestAnswer | undefined> {
+    const entry = this.#history.find((entry) => entry.song.id === songId);
+    if (!entry) return Promise.resolve(undefined);
+    return this.request(entry.song.url);
   }
 
   get requestsOpen(): boolean {
@@ -864,6 +898,23 @@ export class SongQueue {
         eta: this.#etaOf(song) ?? null,
       })),
     };
+  }
+
+  /**
+   * The Songs that left the air, newest first, as the Plugin Editor's
+   * History section lists them (#14).
+   */
+  editorHistory(): EditorHistoryEntry[] {
+    return trimHistory(this.#history).map((entry) => ({
+      id: entry.song.id,
+      title: entry.song.title,
+      channel: entry.song.channel,
+      url: entry.song.url,
+      requesterName: entry.song.requesterName,
+      duration: entry.song.duration ?? null,
+      how: entry.how,
+      at: entry.at,
+    }));
   }
 
   setVolume(value: number): void {

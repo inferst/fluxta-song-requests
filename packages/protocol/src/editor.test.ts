@@ -117,6 +117,18 @@ describe("the editors' messages", () => {
         { kind: "channel", channelUrl: "https://www.youtube.com/@x" },
       ],
       fallbackPlaylist: "https://www.youtube.com/playlist?list=PLx0sYbCqOb8",
+      history: [
+        {
+          id: "song-0",
+          title: "gone",
+          channel: "fake channel",
+          url: "fake://gone",
+          requesterName: "viewer",
+          duration: 180,
+          how: "finished",
+          at: 1735689600000,
+        },
+      ],
       playback: {
         now: 1735689600000,
         isPlaying: true,
@@ -186,6 +198,15 @@ describe("the editors' messages", () => {
         },
       }),
     ).toBe(false);
+    expect(
+      isPluginMessage({
+        event: "status",
+        status: {
+          ...status,
+          history: [{ ...status.history[0], how: "vanished" }],
+        },
+      }),
+    ).toBe(false);
     expect(isPluginMessage({ event: "get-status" })).toBe(false);
   });
 
@@ -209,10 +230,55 @@ describe("the editors' messages", () => {
     );
     expect(isEditorMessage({ event: "remove-song", songId: "x" })).toBe(true);
     expect(isEditorMessage({ event: "block-song", songId: "x" })).toBe(true);
+    expect(isEditorMessage({ event: "queue-again", songId: "x" })).toBe(true);
+    expect(isEditorMessage({ event: "queue-again" })).toBe(false);
+    expect(
+      isEditorMessage({
+        event: "block-history-song",
+        songId: "x",
+        kind: "track",
+      }),
+    ).toBe(true);
+    expect(
+      isEditorMessage({
+        event: "block-history-song",
+        songId: "x",
+        kind: "channel",
+      }),
+    ).toBe(true);
+    expect(isEditorMessage({ event: "block-history-song", songId: "x" })).toBe(
+      false,
+    );
+    expect(
+      isEditorMessage({ event: "block-history-song", songId: "x", kind: 1 }),
+    ).toBe(false);
     expect(
       isEditorMessage({ event: "request-song", request: "fake:one" }),
     ).toBe(true);
     expect(isEditorMessage({ event: "request-song", request: "" })).toBe(false);
+  });
+
+  it("accepts the answer to the History's Queue again", () => {
+    expect(
+      isPluginMessage({
+        event: "queue-again-answer",
+        songId: "song-0",
+        answer: { kind: "accepted", position: 1, eta: 60 },
+      }),
+    ).toBe(true);
+    expect(
+      isPluginMessage({
+        event: "queue-again-answer",
+        songId: "song-0",
+        answer: { kind: "refused", reason: "recently-played" },
+      }),
+    ).toBe(true);
+    expect(
+      isPluginMessage({
+        event: "queue-again-answer",
+        answer: { kind: "accepted", position: 1, eta: 60 },
+      }),
+    ).toBe(false);
   });
 
   it("accepts the answer to the streamer's Request", () => {

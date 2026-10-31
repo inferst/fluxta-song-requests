@@ -1,16 +1,19 @@
 import { EditorPage, PluginEditorLayout } from "@fluxta/sdk/ui";
 
+import { HistorySection } from "./HistorySection";
 import { NowSection } from "./NowSection";
 import { PlayerPageSection } from "./PlayerPageSection";
 import { QueueSection } from "./QueueSection";
 import { RulesSection } from "./RulesSection";
 import { SettingsSection } from "./SettingsSection";
 import { usePluginStatus } from "./usePluginStatus";
+import { useQueueAgain } from "./useQueueAgain";
 import { useSongRequest } from "./useSongRequest";
 
 export function PluginEditorApp() {
   const { status, sidecarSilent } = usePluginStatus();
   const request = useSongRequest();
+  const again = useQueueAgain();
 
   if (!status) {
     return (
@@ -70,6 +73,12 @@ export function PluginEditorApp() {
           content: (
             <QueueSection playback={status.playback} request={request} />
           ),
+        },
+        {
+          id: "history",
+          label: "History",
+          count: status.history.length,
+          content: <HistorySection history={status.history} again={again} />,
         },
         {
           id: "rules",

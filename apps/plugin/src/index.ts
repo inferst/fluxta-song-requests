@@ -172,6 +172,7 @@ function status(): PluginStatus {
     } satisfies RuleDefaults,
     blocklist: (settings?.blocklist ?? []) as BlocklistEntry[],
     fallbackPlaylist: settings?.fallbackPlaylist ?? "",
+    history: queue.editorHistory(),
     playback: queue.editorPlayback(),
   };
 }
@@ -231,6 +232,29 @@ async function requestFromEditor(request: string): Promise<void> {
   });
   plugin.sendToEditor({
     event: "request-answer",
+    answer:
+      answer.kind === "accepted"
+        ? {
+            kind: "accepted",
+            position: answer.position,
+            eta: answer.eta ?? null,
+          }
+        : { kind: "refused", reason: answer.reason },
+  } satisfies PluginMessage);
+}
+
+/**
+ * Queue again from the History (#14): the Song's link requested as the
+ * streamer's own — checked with the Defaults, no Requester, so the
+ * per-Requester Rules do not count it — and answered to the editor, its
+ * place in the Song Queue or the Refusal's reason.
+ */
+async function queueAgainFromEditor(songId: string): Promise<void> {
+  const answer = await queue.queueAgain(songId);
+  if (answer === undefined) return;
+  plugin.sendToEditor({
+    event: "queue-again-answer",
+    songId,
     answer:
       answer.kind === "accepted"
         ? {
@@ -313,6 +337,20 @@ plugin.onReceiveFromEditor((message: unknown) => {
       // What the Block Song Action does by `songId`: the track goes into
       // the Blocklist and the Songs it covers leave the Song Queue.
       queue.blockSong({ kind: "songId", songId: message.songId }, "track");
+      publish();
+      return;
+
+    case "queue-again":
+      // The History's Queue again: the streamer's own Request, checked with
+      // the Defaults — the same Song Queue call as the add field's.
+      void queueAgainFromEditor(message.songId);
+      return;
+
+    case "block-history-song":
+      // What Block Song does with a History Song's track or channel (#14):
+      // the entry goes into the Blocklist and waiting Songs it cover leave
+      // the Song Queue.
+      queue.blockHistorySong(message.songId, message.kind);
       publish();
       return;
 

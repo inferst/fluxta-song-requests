@@ -15,6 +15,7 @@ import type {
   SongDroppedReason,
   Track,
 } from "./provider";
+import { HISTORY_MAX_AGE_MS } from "./history";
 import {
   SongQueue,
   type RequestAnswer,
@@ -1274,6 +1275,228 @@ describe("the History", () => {
     });
 
     expect(back.snapshot().history).toEqual(queue.snapshot().history);
+  });
+});
+
+describe("the Plugin Editor's History", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  /**
+   * A fake Provider whose links resolve back to the same track — the way a
+   * Provider's URLs round-trip in production — so Queue again's Request of
+   * the Song's link lands on the same track. `fake://<title>` keeps the
+   * title as its trackId, with no duration, like a keyless link.
+   */
+  function urlProvider() {
+    const { provider, player } = fakeProvider("fake");
+    return {
+      player,
+      provider: {
+        ...provider,
+        claims: (request: string) =>
+          request.startsWith("fake:") || request.startsWith("fake://"),
+        async resolve(request: string) {
+          if (request.startsWith("fake://")) {
+            const title = request.slice("fake://".length);
+            return {
+              kind: "track" as const,
+              track: {
+                provider: "fake",
+                trackId: title,
+                title,
+                channel: "fake channel",
+                channelUrl: "fake://channel",
+                url: `fake://${title}`,
+              },
+            };
+          }
+          return provider.resolve(request);
+        },
+      },
+    };
+  }
+
+  it("answers the Songs that left the air, newest first, with when, the Requester and how", async () => {
+    const { provider, player } = ruledProvider();
+    const queue = ruledQueue(provider);
+    player.connect();
+    vi.setSystemTime(1000 * 60 * 60);
+
+    const one = songOf(
+      await queue.request("fake:one@200", {
+        requesterPlatform: "twitch",
+        requesterId: "user-1",
+        requesterName: "viewer",
+        reference: "",
+      }),
+    );
+    player.load(one, 200);
+    vi.advanceTimersByTime(10_000);
+    player.end(one);
+
+    const two = songOf(await queue.request("fake:two@100"));
+    player.load(two, 100);
+    vi.advanceTimersByTime(5000);
+    player.fail(two);
+
+    expect(queue.editorHistory()).toEqual([
+      {
+        id: two.id,
+        title: "two",
+        channel: "Fake channel",
+        url: "fake://two",
+        requesterName: "",
+        duration: 100,
+        how: "failed",
+        at: Date.now(),
+      },
+      {
+        id: one.id,
+        title: "one",
+        channel: "Fake channel",
+        url: "fake://one",
+        requesterName: "viewer",
+        duration: 200,
+        how: "finished",
+        at: Date.now() - 5000,
+      },
+    ]);
+  });
+
+  it("stops showing expired History entries without another Song leaving the air", async () => {
+    const { provider, player } = ruledProvider();
+    const queue = ruledQueue(provider);
+    player.connect();
+
+    const one = songOf(await queue.request("fake:one@200"));
+    player.load(one, 200);
+    player.end(one);
+    const endedAt = Date.now();
+
+    vi.setSystemTime(endedAt + HISTORY_MAX_AGE_MS);
+    expect(queue.editorHistory().map((entry) => entry.id)).toEqual([one.id]);
+
+    vi.setSystemTime(endedAt + HISTORY_MAX_AGE_MS + 1);
+    expect(queue.editorHistory()).toEqual([]);
+  });
+
+  it("queues a History Song again as the streamer's own Request, checked with the Defaults", async () => {
+    const { provider, player } = urlProvider();
+    // Played within 0: the Song may play again at once, so the new Request
+    // is not refused as `recently-played`.
+    const queue = ruledQueue(provider, {
+      defaults: { playedWithinSeconds: 0 },
+    });
+    player.connect();
+
+    const one = songOf(await queue.request("fake:one@200"));
+    player.load(one, 200);
+    player.end(one);
+
+    const blocker = songOf(await queue.request("fake:blocker@500"));
+    player.load(blocker, 500);
+
+    const again = await queue.queueAgain(one.id);
+    // What is left of what is on air — its own duration is not needed for this.
+    expect(again).toMatchObject({ kind: "accepted", position: 1, eta: 500 });
+
+    const waiting = queue.snapshot().waiting;
+    expect(waiting).toHaveLength(1);
+    // The streamer's own Request: no Requester, and a new Song with a new id.
+    expect(waiting[0]).toMatchObject({
+      title: "one",
+      requesterName: "",
+      requesterId: "",
+    });
+    expect(waiting[0].id).not.toBe(one.id);
+  });
+
+  it("answers a Queue again with the Refusal's reason — the Defaults are checked", async () => {
+    const { provider, player } = urlProvider();
+    const queue = ruledQueue(provider);
+    player.connect();
+
+    const one = songOf(await queue.request("fake:one@200"));
+    player.load(one, 200);
+    player.end(one);
+
+    // The Default hour has not passed since it left the air.
+    expect(await queue.queueAgain(one.id)).toEqual({
+      kind: "refused",
+      reason: "recently-played",
+    });
+  });
+
+  it("answers nothing for a Song the History no longer holds", async () => {
+    const { provider } = ruledProvider();
+    const queue = ruledQueue(provider);
+
+    expect(await queue.queueAgain("song-missing")).toBeUndefined();
+    expect(queue.blockHistorySong("song-missing", "track")).toBeUndefined();
+  });
+
+  it("blocks a History Song's track — the Blocklist entry Block Song makes", async () => {
+    const { provider, player } = ruledProvider();
+    const blocked: BlocklistEntry[] = [];
+    let next = 0;
+    const queue = new SongQueue({
+      providers: [provider],
+      newId: () => `song-${++next}`,
+      onBlock: (entry) => {
+        blocked.push(entry);
+        return true;
+      },
+    });
+    player.connect();
+
+    const one = songOf(await queue.request("fake:one@200"));
+    player.load(one, 200);
+    player.end(one);
+
+    expect(queue.blockHistorySong(one.id, "track")).toEqual(one);
+    expect(blocked).toEqual([
+      { kind: "track", provider: "fake", trackId: "one" },
+    ]);
+    // The History itself is left as it is.
+    expect(queue.snapshot().history).toHaveLength(1);
+  });
+
+  it("blocks a History Song's channel and drops the waiting Songs it covers", async () => {
+    const { provider, player } = ruledProvider();
+    const blocked: BlocklistEntry[] = [];
+    let next = 0;
+    const heard: HeardSongEvent[] = [];
+    const queue = new SongQueue({
+      providers: [provider],
+      newId: () => `song-${++next}`,
+      onBlock: (entry) => {
+        blocked.push(entry);
+        return true;
+      },
+      onDropped: (song, why) => heard.push({ event: "dropped", song, why }),
+    });
+    player.connect();
+
+    const one = songOf(await queue.request("fake:one@200"));
+    player.load(one, 200);
+    player.end(one);
+
+    const waiting = songOf(await queue.request("fake:another@100"));
+
+    expect(queue.blockHistorySong(one.id, "channel")).toEqual(one);
+    expect(blocked).toEqual([
+      { kind: "channel", provider: "fake", channelUrl: "fake://channel" },
+    ]);
+    expect(queue.snapshot().waiting).toEqual([]);
+    expect(heard).toEqual([
+      { event: "dropped", song: waiting, why: "blocked" },
+    ]);
   });
 });
 
