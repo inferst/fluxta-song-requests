@@ -39,7 +39,7 @@ import { SongQueue } from "./songs/song-queue";
 import { StateFile } from "./state-file";
 import { DataApi } from "./youtube/data-api";
 import { playlistIdOf } from "./youtube/link";
-import { keylessPlaylistTracks, playlistTracks } from "./youtube/playlist";
+import { fallbackPlaylistTracks } from "./youtube/playlist";
 import { createYouTubeProvider } from "./youtube/provider";
 import { systemRegion } from "./youtube/region";
 import { SearchCache } from "./youtube/search-cache";
@@ -161,7 +161,7 @@ function status(): PluginStatus {
     playerUrl: playerKey
       ? `http://localhost:${PLAYER_PORT}/player?key=${playerKey}`
       : "",
-    playerConnected: pagePlayer.ready,
+    playerConnected: pagePlayer.connected,
     apiKey: dataApi.status(),
     region: { chosen: chosenRegion(), system: SYSTEM_REGION },
     stateFile: { recovered: restored.recovered },
@@ -189,20 +189,14 @@ async function learnFallbackPlaylist(): Promise<void> {
     queue.setFallbackTracks(undefined);
     return;
   }
-  if (!dataApi.unusable()) {
-    queue.setFallbackTracks(
-      await playlistTracks(
-        dataApi,
-        playlistId,
-        chosenRegion() ?? SYSTEM_REGION,
-      ),
-    );
-    return;
-  }
-  if (pagePlayer.ready) {
-    const ids = await pagePlayer.listPlaylist(playlistId);
-    queue.setFallbackTracks(keylessPlaylistTracks(ids));
-  }
+  queue.setFallbackTracks(
+    await fallbackPlaylistTracks(
+      dataApi,
+      playlistId,
+      chosenRegion() ?? SYSTEM_REGION,
+      (id) => pagePlayer.listPlaylist(id),
+    ),
+  );
 }
 
 // Readings overlap easily — a page connecting as the answer arrives, a key

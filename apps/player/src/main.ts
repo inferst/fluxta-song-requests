@@ -52,7 +52,7 @@ let current:
   | undefined;
 let retry: ReturnType<typeof setTimeout> | undefined;
 /** The playlist a `cue` asked to list, waiting for the player to load it. */
-let listing: string | undefined;
+let listing: { playlistId: string; requestId: string } | undefined;
 
 function send(message: PageMessage): void {
   if (socket?.readyState === WebSocket.OPEN) {
@@ -150,7 +150,7 @@ function createPlayer(): YT.Player {
       onReady: (event) => {
         playerReady = true;
         if (listing !== undefined) {
-          event.target.cuePlaylist({ list: listing });
+          event.target.cuePlaylist({ list: listing.playlistId });
         } else {
           start(event.target);
         }
@@ -161,8 +161,13 @@ function createPlayer(): YT.Player {
           // what `getPlaylist()` gives is what the player loaded of it —
           // for a long playlist, maybe not every entry.
           const ids = event.target.getPlaylist();
+          const { requestId } = listing;
           listing = undefined;
-          send({ event: "cued", ids: Array.isArray(ids) ? ids : [] });
+          send({
+            event: "cued",
+            requestId,
+            ids: Array.isArray(ids) ? ids : [],
+          });
         }
         if (event.data === PLAYING) {
           if (paused) event.target.pauseVideo();
@@ -174,6 +179,12 @@ function createPlayer(): YT.Player {
       },
       onError: (event) => {
         clearTimeout(retry);
+        if (listing !== undefined) {
+          const { requestId } = listing;
+          listing = undefined;
+          send({ event: "cued", requestId, ids: [] });
+          return;
+        }
         if (current) {
           send({ event: "error", songId: current.songId, code: event.data });
         }
@@ -219,7 +230,7 @@ function obey(message: SidecarMessage): void {
     case "pause":
       paused = true;
       clearTimeout(retry);
-      if (playerReady) player?.pauseVideo();
+      if (playerReady && current) player?.pauseVideo();
       return;
     case "resume":
       paused = false;
@@ -232,7 +243,12 @@ function obey(message: SidecarMessage): void {
     case "cue":
       // Only ever cued, to learn the Fallback Playlist's entries — never
       // played: the sidecar hands tracks one at a time (ADR-0003).
-      listing = message.playlistId;
+      current = undefined;
+      clearTimeout(retry);
+      listing = {
+        playlistId: message.playlistId,
+        requestId: message.requestId,
+      };
       if (!apiReady) return;
       if (!player) {
         player = createPlayer();

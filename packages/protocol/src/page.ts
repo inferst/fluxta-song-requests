@@ -43,9 +43,14 @@ const SidecarMessageSchema = z.discriminatedUnion("event", [
   /**
    * Cues a playlist — never to play it (the sidecar hands tracks one at a
    * time, ADR-0003), only so the page lists it back: the keyless way of
-   * learning the Fallback Playlist's tracks.
+   * learning the Fallback Playlist's tracks. The request id keeps a late
+   * reply to a timed-out cue from answering a later one.
    */
-  z.object({ event: z.literal("cue"), playlistId: z.string() }),
+  z.object({
+    event: z.literal("cue"),
+    requestId: z.string(),
+    playlistId: z.string(),
+  }),
 ]);
 
 const PageMessageSchema = z.discriminatedUnion("event", [
@@ -75,7 +80,11 @@ const PageMessageSchema = z.discriminatedUnion("event", [
    * loads a long playlist's entries in chunks, so this may not list them
    * all — the sidecar takes what it lists (ADR-0003).
    */
-  z.object({ event: z.literal("cued"), ids: z.array(z.string()) }),
+  z.object({
+    event: z.literal("cued"),
+    requestId: z.string(),
+    ids: z.array(z.string()),
+  }),
 ]);
 
 /** A message the sidecar sends to the Player Page. */

@@ -1,8 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { Track } from "../songs/provider";
 import { DataApi } from "./data-api";
-import { keylessPlaylistTracks, playlistTracks } from "./playlist";
+import {
+  fallbackPlaylistTracks,
+  keylessPlaylistTracks,
+  playlistTracks,
+} from "./playlist";
 
 const KEY = "AIzaSyTestKey-0123456789abcdefghijkl";
 const PLAYLIST = "PLx0sYbCqOb8TBPRdmBHs5Iftvv9TPboYG";
@@ -136,6 +140,54 @@ describe("learning the Fallback Playlist through the Data API", () => {
 });
 
 describe("the Fallback Playlist learned from the player", () => {
+  afterEach(() => vi.useRealTimers());
+
+  it.each([
+    ["api-key-invalid", "playlistItems"],
+    ["quota-exhausted", "playlistItems"],
+    ["api-key-invalid", "videos"],
+    ["quota-exhausted", "videos"],
+  ])(
+    "uses the connected Player when the API reports %s during %s",
+    async (reason, stage) => {
+      vi.useFakeTimers();
+      const failure = json(
+        {
+          error: {
+            errors: [
+              {
+                reason:
+                  reason === "api-key-invalid"
+                    ? "accessNotConfigured"
+                    : "quotaExceeded",
+              },
+            ],
+          },
+        },
+        403,
+      );
+      const { fetch } = youtube(
+        ...(stage === "videos"
+          ? [playlistPage(["dQw4w9WgXcQ"]), failure]
+          : [failure]),
+      );
+      const api = new DataApi({ fetch });
+      api.setKey(KEY);
+      const listPlaylist = vi.fn(async () => ["dQw4w9WgXcQ"]);
+
+      const tracks = await fallbackPlaylistTracks(
+        api,
+        PLAYLIST,
+        "US",
+        listPlaylist,
+      );
+
+      expect(api.unusable()).toBe(reason);
+      expect(listPlaylist).toHaveBeenCalledExactlyOnceWith(PLAYLIST);
+      expect(tracks).toEqual(keylessPlaylistTracks(["dQw4w9WgXcQ"]));
+    },
+  );
+
   it("makes a track of each listed id — nothing but the link is known", () => {
     expect(keylessPlaylistTracks(["dQw4w9WgXcQ", "video2xxxxx"])).toEqual<
       Track[]

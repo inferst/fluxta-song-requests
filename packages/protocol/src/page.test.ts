@@ -56,7 +56,11 @@ describe("the Player Page's messages", () => {
       }),
     ).toBe(true);
     expect(
-      isPageMessage({ event: "cued", ids: ["dQw4w9WgXcQ", "video"] }),
+      isPageMessage({
+        event: "cued",
+        requestId: "1",
+        ids: ["dQw4w9WgXcQ", "video"],
+      }),
     ).toBe(true);
   });
 
@@ -85,7 +89,11 @@ describe("the Player Page's messages", () => {
     ).toBe(true);
     expect(isSidecarMessage({ event: "unmute", songId: "s1" })).toBe(true);
     expect(isSidecarMessage({ event: "stop" })).toBe(true);
-    expect(isSidecarMessage({ event: "cue", playlistId: "PL…" })).toBe(true);
+    expect(
+      isSidecarMessage({ event: "cue", requestId: "1", playlistId: "PL…" }),
+    ).toBe(true);
+    expect(isSidecarMessage({ event: "cue", playlistId: "PL…" })).toBe(false);
+    expect(isPageMessage({ event: "cued", ids: [] })).toBe(false);
     expect(isSidecarMessage({ event: "cue" })).toBe(false);
 
     expect(

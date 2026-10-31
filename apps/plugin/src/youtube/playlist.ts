@@ -6,6 +6,22 @@ import { resolveVideo } from "./playability";
 /** `videos.list` takes at most 50 ids a call; a playlist is learned 50 at a time. */
 const VIDEOS_PER_CALL = 50;
 
+/** Learns the Fallback Playlist with the API Key, or from its Player without one. */
+export async function fallbackPlaylistTracks(
+  dataApi: DataApi,
+  playlistId: string,
+  region: string,
+  listPlaylist: (playlistId: string) => Promise<string[]>,
+): Promise<Track[]> {
+  if (!dataApi.unusable()) {
+    const tracks = await playlistTracks(dataApi, playlistId, region);
+    // A refused key or spent quota can first be discovered by this reading
+    // itself. In either case the Player can still list it (ADR-0005).
+    if (!dataApi.unusable()) return tracks;
+  }
+  return keylessPlaylistTracks(await listPlaylist(playlistId));
+}
+
 /**
  * The Fallback Playlist's tracks, read through the Data API: one unit per
  * 50 entries of `playlistItems.list`, then one per 50 of `videos.list`,

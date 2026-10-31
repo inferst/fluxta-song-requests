@@ -25,6 +25,13 @@ through a shuffle and stuck on the first entry it could not play (spike #3). The
 that the Song Queue, the Rules and the Events are shown not to depend on
 YouTube.
 
+Keyless learning shares the Player Page's IFrame with playback, so it waits
+for the track on air to leave before cuing the playlist. While it lists the
+entries, the Player stays connected but is not ready for another track; it
+becomes ready after the learned tracks have been installed. A page replaced
+or disconnected mid-read answers no entries, and an unanswered cue has a
+bounded wait, so neither can strand later readings or the Song Queue.
+
 ## Spotify, when it comes
 
 Known in October 2026, so the seam can take it:

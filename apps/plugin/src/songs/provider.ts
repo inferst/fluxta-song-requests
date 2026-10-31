@@ -130,6 +130,8 @@ export type PlayOptions = {
 export interface Player {
   /** Whether a Song handed over now would play. */
   readonly ready: boolean;
+  /** A connected Player may be preparing; absent when connection and readiness are the same. */
+  readonly connected?: boolean;
   /**
    * Plays the Song in place of whatever was on. A muted Song is not heard
    * until `unmute` — its Start Check. `startAt` is seconds in to start at:

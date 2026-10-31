@@ -366,10 +366,7 @@ export class SongQueue {
       return undefined;
     }
     if (current.kind === "fallback") {
-      // A Fallback Track leaves no trace: no Event, no History.
-      this.#current = undefined;
-      this.#onChange?.();
-      this.#advance();
+      this.#skipFallback(current, false);
       return undefined;
     }
     return current;
@@ -636,10 +633,7 @@ export class SongQueue {
     const current = this.#current;
     if (!current) return undefined;
     if (current.kind === "fallback") {
-      this.#current = undefined;
-      this.#playerOf(current.track)?.stop();
-      this.#onChange?.();
-      this.#advance();
+      this.#skipFallback(current, true);
       return current.track;
     }
     if (!current.started) {
@@ -747,7 +741,9 @@ export class SongQueue {
         this.#playerOf(trackOf(current))?.ready,
       ),
       isPaused: this.#paused,
-      playerConnected: this.#providers.some(({ player }) => player.ready),
+      playerConnected: this.#providers.some(
+        ({ player }) => player.connected ?? player.ready,
+      ),
       currentTitle: (current && trackOf(current).title) || "",
       currentRequester:
         current?.kind === "song" ? current.song.requesterName : "",
