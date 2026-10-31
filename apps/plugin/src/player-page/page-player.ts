@@ -79,13 +79,7 @@ export class PagePlayer implements Player {
     });
     page.onClose(() => {
       if (this.#page !== page) return;
-      this.#page = undefined;
-      // A cue whose page went away lists nothing; the playlist is learned
-      // anew when a page connects.
-      this.#cancelListing();
-      this.#activeSongId = undefined;
-      this.#events?.disconnected();
-      this.#tellConnection();
+      this.#disconnect();
     });
 
     before?.close(REPLACED_CLOSE_CODE);
@@ -99,7 +93,22 @@ export class PagePlayer implements Player {
    * any disconnect, until the page opened at the new address connects.
    */
   closeForKeyChange(): void {
-    this.#page?.close(KEY_CHANGED_CLOSE_CODE);
+    const page = this.#page;
+    if (!page) return;
+    // The WebSocket close handshake waits for the peer: revoke its control
+    // before it can send more messages with the replaced Player Key.
+    this.#disconnect();
+    page.close(KEY_CHANGED_CLOSE_CODE);
+  }
+
+  #disconnect(): void {
+    this.#page = undefined;
+    // A cue whose page went away lists nothing; the playlist is learned
+    // anew when a page connects.
+    this.#cancelListing();
+    this.#activeSongId = undefined;
+    this.#events?.disconnected();
+    this.#tellConnection();
   }
 
   play(song: Playable, { muted, startAt, paused, volume }: PlayOptions): void {
