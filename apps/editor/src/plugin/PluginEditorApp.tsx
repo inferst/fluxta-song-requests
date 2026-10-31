@@ -6,9 +6,11 @@ import { QueueSection } from "./QueueSection";
 import { RulesSection } from "./RulesSection";
 import { SettingsSection } from "./SettingsSection";
 import { usePluginStatus } from "./usePluginStatus";
+import { useSongRequest } from "./useSongRequest";
 
 export function PluginEditorApp() {
   const { status, sidecarSilent } = usePluginStatus();
+  const request = useSongRequest();
 
   if (!status) {
     return (
@@ -47,11 +49,12 @@ export function PluginEditorApp() {
         {
           id: "now",
           label: "Now",
-          tone: status.playback.current
-            ? status.playback.isPaused
-              ? ("idle" as const)
-              : ("ok" as const)
-            : undefined,
+          tone:
+            status.playback.current || status.playback.isPaused
+              ? status.playback.isPlaying
+                ? ("ok" as const)
+                : ("idle" as const)
+              : undefined,
           content: <NowSection playback={status.playback} />,
         },
         {
@@ -64,7 +67,9 @@ export function PluginEditorApp() {
           id: "queue",
           label: "Song Queue",
           count: status.playback.waiting.length,
-          content: <QueueSection playback={status.playback} />,
+          content: (
+            <QueueSection playback={status.playback} request={request} />
+          ),
         },
         {
           id: "rules",

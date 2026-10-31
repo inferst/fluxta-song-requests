@@ -2,6 +2,7 @@ import {
   FALLBACK_RULE_DEFAULTS,
   type BlocklistEntry,
   type PlaybackStatus,
+  type PlayerPlaybackState,
   type RequestSongOverrides,
   type RuleDefaults,
 } from "song-requests-protocol";
@@ -65,6 +66,7 @@ type OnAir = {
   /** It has been heard, so its end is Song Ended rather than Song Dropped. */
   started: boolean;
   loaded?: boolean;
+  playerState?: PlayerPlaybackState;
   /** When it began to play, by `Date.now()`; unset until its Player says so. */
   since?: number;
   /** How far it has played, in seconds, as of `since`. */
@@ -212,6 +214,8 @@ export class SongQueue {
 
     for (const provider of providers) {
       provider.player.attach({
+        playback: (songId, state, position) =>
+          this.#playbackChanged(songId, state, position),
         ready: () => this.#resume(provider),
         disconnected: () => this.#disconnected(provider),
         loaded: (songId, duration, title) =>
@@ -271,6 +275,8 @@ export class SongQueue {
         current.resumeAt = this.#positionOf(current);
       }
       this.#start(current, provider.player);
+      // A replacement page is ready before it has loaded the Current Song.
+      this.#onChange?.();
       return;
     }
     this.#advance();
@@ -284,6 +290,30 @@ export class SongQueue {
     }
     current.since = undefined;
     current.loaded = false;
+    current.playerState = undefined;
+    this.#onChange?.();
+  }
+
+  #playbackChanged(
+    songId: string,
+    state: PlayerPlaybackState,
+    position: number,
+  ): void {
+    const current = this.#current;
+    if (!current || trackOf(current).id !== songId) return;
+    current.playerState = state;
+    // Pause and Play from a Player update the same state as the Playback
+    // Action. Buffering is a wait, and must not change that decision.
+    if (state === "paused") this.#paused = true;
+    else if (state === "playing") this.#paused = false;
+    if (current.loaded && !current.atStartCheck) {
+      current.position = position;
+      current.since = state === "playing" ? Date.now() : undefined;
+      if (state === "playing" && !current.started) {
+        current.started = true;
+        if (current.kind === "song") this.#onStarted?.(current.song);
+      }
+    }
     this.#onChange?.();
   }
 
@@ -466,6 +496,7 @@ export class SongQueue {
    */
   #start(current: OnAir, player: Player): void {
     current.loaded = false;
+    current.playerState = undefined;
     current.since = undefined;
     if (current.resumeAt !== undefined) {
       current.position = current.resumeAt;
@@ -693,7 +724,7 @@ export class SongQueue {
     return current.song;
   }
 
-  /** The explicit pause is independent of whether a Player is connected. */
+  /** Pause is shared with the Player's own controls and survives disconnection. */
   playback(mode: "pause" | "resume" | "toggle"): boolean {
     const paused =
       mode === "pause"
@@ -715,7 +746,12 @@ export class SongQueue {
       if (paused) player?.pause();
       else {
         player?.resume();
-        if (current.loaded && player?.ready) {
+        if (
+          current.loaded &&
+          player?.ready &&
+          (current.playerState === undefined ||
+            current.playerState === "playing")
+        ) {
           current.since = Date.now();
           if (!current.started) {
             current.started = true;
@@ -779,16 +815,22 @@ export class SongQueue {
     }
   }
 
+  #isPlaying(): boolean {
+    const current = this.#current;
+    return Boolean(
+      current?.started &&
+      current.loaded &&
+      current.since !== undefined &&
+      !this.#paused &&
+      this.#playerOf(trackOf(current))?.ready,
+    );
+  }
+
   /** State read by Standalone Query Sources; waiting durations exclude what is on air. */
   status() {
     const current = this.#current;
     return {
-      isPlaying: Boolean(
-        current?.started &&
-        current.loaded &&
-        !this.#paused &&
-        this.#playerOf(trackOf(current))?.ready,
-      ),
+      isPlaying: this.#isPlaying(),
       isPaused: this.#paused,
       playerConnected: this.#providers.some(
         ({ player }) => player.connected ?? player.ready,
@@ -815,7 +857,9 @@ export class SongQueue {
     const current = this.#current;
     return {
       now: Date.now(),
+      isPlaying: this.#isPlaying(),
       isPaused: this.#paused,
+      playerState: current?.playerState ?? null,
       volume: this.#volume,
       requestsOpen: this.requestsOpen,
       current: current

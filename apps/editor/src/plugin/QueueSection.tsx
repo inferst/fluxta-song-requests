@@ -8,17 +8,16 @@ import {
   TextField,
   usePluginEditor,
 } from "@fluxta/sdk/ui";
-import { useEffect, useState } from "react";
-import {
-  isPluginMessage,
-  type EditorMessage,
-  type PlaybackStatus,
-  type StreamerRequestAnswer,
-  type WaitingSong,
+import { useState } from "react";
+import type {
+  EditorMessage,
+  PlaybackStatus,
+  WaitingSong,
 } from "song-requests-protocol";
 
 import { refusalText } from "./refusalText";
 import { formatSeconds } from "./format";
+import type { SongRequest } from "./useSongRequest";
 
 function etaText(eta: number | null): string {
   return eta === null ? "—" : formatSeconds(eta);
@@ -32,21 +31,17 @@ function etaText(eta: number | null): string {
  * Actions do. Below, the streamer's own field adds a Song, checked as
  * Request Song with the Defaults; its Refusal's reason is shown here.
  */
-export function QueueSection({ playback }: { playback: PlaybackStatus }) {
+export function QueueSection({
+  playback,
+  request,
+}: {
+  playback: PlaybackStatus;
+  request: SongRequest;
+}) {
   const editor = usePluginEditor();
-  const [draft, setDraft] = useState("");
-  const [answer, setAnswer] = useState<StreamerRequestAnswer | undefined>();
+  const { draft, answer } = request;
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [overPosition, setOverPosition] = useState<number | null>(null);
-
-  useEffect(() => {
-    return editor.onReceiveFromPlugin((message: unknown) => {
-      if (isPluginMessage(message) && message.event === "request-answer") {
-        setAnswer(message.answer);
-        if (message.answer.kind === "accepted") setDraft("");
-      }
-    });
-  }, [editor]);
 
   function send(message: EditorMessage) {
     void editor.sendToPlugin(message);
@@ -94,22 +89,12 @@ export function QueueSection({ playback }: { playback: PlaybackStatus }) {
       <TextField
         label="Add a Song"
         value={draft}
-        onChange={(value) => {
-          setDraft(value);
-          setAnswer(undefined);
-        }}
+        onChange={request.changeDraft}
         placeholder="A YouTube link or search words"
         hint="Checked as Request Song with the Defaults: the Rules and the Blocklist apply, and what needs the API Key is refused without it."
       />
       <div className="flex items-center gap-2">
-        <Button
-          type="button"
-          disabled={!draft.trim()}
-          onClick={() => {
-            setAnswer(undefined);
-            send({ event: "request-song", request: draft.trim() });
-          }}
-        >
+        <Button type="button" disabled={!draft.trim()} onClick={request.submit}>
           Add
         </Button>
         {answer?.kind === "accepted" ? (

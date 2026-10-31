@@ -3,6 +3,39 @@ import { describe, expect, it } from "vitest";
 import { isPageMessage, isSidecarMessage } from "./page";
 
 describe("the Player Page's messages", () => {
+  it("checks actual playback state and position from the Player", () => {
+    for (const state of ["playing", "paused", "buffering", "loading"]) {
+      expect(
+        isPageMessage({
+          event: "playback",
+          songId: "s1",
+          state,
+          position: 12.5,
+        }),
+      ).toBe(true);
+    }
+    for (const position of [-1, Infinity, NaN, "12", undefined]) {
+      expect(
+        isPageMessage({
+          event: "playback",
+          songId: "s1",
+          state: "paused",
+          position,
+        }),
+      ).toBe(false);
+    }
+    expect(
+      isPageMessage({ event: "playback", state: "playing", position: 0 }),
+    ).toBe(false);
+    expect(
+      isPageMessage({
+        event: "playback",
+        songId: "s1",
+        state: "unknown",
+        position: 0,
+      }),
+    ).toBe(false);
+  });
   it("checks playback and volume commands, including paused loads and silent volume", () => {
     expect(isSidecarMessage({ event: "pause" })).toBe(true);
     expect(isSidecarMessage({ event: "resume" })).toBe(true);

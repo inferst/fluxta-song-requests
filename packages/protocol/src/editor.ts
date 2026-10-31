@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { isRegion } from "./regions";
+import { PlayerPlaybackStateSchema } from "./page";
 import { BlocklistEntrySchema, RuleDefaultsSchema } from "./rules";
 
 /**
@@ -94,7 +95,12 @@ const PlaybackStatusSchema = z.object({
    * on this computer, so it can tick the progress from its own clock.
    */
   now: z.number(),
+  /** Whether progress advances; false while loading or waiting for a Player. */
+  isPlaying: z.boolean(),
+  /** Pause shared by the Plugin Editor, Actions and Player; kept when nothing is on air. */
   isPaused: z.boolean(),
+  /** The Player's own state; null until reported or while disconnected. */
+  playerState: PlayerPlaybackStateSchema.nullable(),
   volume: z.number(),
   requestsOpen: z.boolean(),
   /** `null` when nothing is on air. */

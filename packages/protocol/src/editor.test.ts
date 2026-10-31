@@ -119,7 +119,9 @@ describe("the editors' messages", () => {
       fallbackPlaylist: "https://www.youtube.com/playlist?list=PLx0sYbCqOb8",
       playback: {
         now: 1735689600000,
+        isPlaying: true,
         isPaused: false,
+        playerState: "playing",
         volume: 80,
         requestsOpen: true,
         current: {
@@ -149,6 +151,24 @@ describe("the editors' messages", () => {
     };
 
     expect(isPluginMessage({ event: "status", status })).toBe(true);
+    expect(
+      isPluginMessage({
+        event: "status",
+        status: {
+          ...status,
+          playback: { ...status.playback, isPlaying: false },
+        },
+      }),
+    ).toBe(true);
+    expect(
+      isPluginMessage({
+        event: "status",
+        status: {
+          ...status,
+          playback: { ...status.playback, isPlaying: "playing" },
+        },
+      }),
+    ).toBe(false);
     expect(
       isPluginMessage({ event: "status", status: { playerConnected: true } }),
     ).toBe(false);

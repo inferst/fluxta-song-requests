@@ -192,6 +192,9 @@ export class PagePlayer implements Player {
     if (!message) return;
 
     switch (message.event) {
+      case "playback":
+        this.#events?.playback(message.songId, message.state, message.position);
+        return;
       case "loaded":
         // A live stream's duration is how long it has been on, not its
         // length: it has none.

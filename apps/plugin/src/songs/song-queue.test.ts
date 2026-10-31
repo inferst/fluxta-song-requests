@@ -66,6 +66,11 @@ class FakePlayer implements Player {
     this.#events?.ready();
   }
 
+  disconnect() {
+    this.ready = false;
+    this.#events?.disconnected();
+  }
+
   /** The Song plays, and is this long — `undefined` for a live stream. */
   load(song: Playable, duration: number | undefined, title?: string) {
     this.#events?.loaded(song.id, duration, title);
@@ -1648,5 +1653,107 @@ describe("the Plugin Editor's Now and the queue", () => {
       requesterName: "",
       duration: 100,
     });
+  });
+
+  it("advances the editor's progress only after loading, until paused or disconnected", async () => {
+    const { provider, player } = fakeProvider("fake");
+    const queue = songQueue(provider);
+    player.connect();
+    const one = songOf(await queue.request("fake:one@200"));
+
+    vi.advanceTimersByTime(10_000);
+    expect(queue.editorPlayback()).toMatchObject({
+      isPlaying: false,
+      isPaused: false,
+      current: { position: 0 },
+    });
+
+    player.load(one, 200);
+    vi.advanceTimersByTime(10_000);
+    expect(queue.editorPlayback()).toMatchObject({
+      isPlaying: true,
+      current: { position: 10 },
+    });
+
+    queue.playback("pause");
+    vi.advanceTimersByTime(10_000);
+    expect(queue.editorPlayback()).toMatchObject({
+      isPlaying: false,
+      isPaused: true,
+      current: { position: 10 },
+    });
+
+    queue.playback("resume");
+    vi.advanceTimersByTime(5_000);
+    expect(queue.editorPlayback()).toMatchObject({
+      isPlaying: true,
+      isPaused: false,
+      current: { position: 15 },
+    });
+
+    player.disconnect();
+    vi.advanceTimersByTime(30_000);
+    expect(queue.editorPlayback()).toMatchObject({
+      isPlaying: false,
+      isPaused: false,
+      current: { position: 15 },
+    });
+
+    player.connect();
+    vi.advanceTimersByTime(10_000);
+    expect(queue.editorPlayback()).toMatchObject({
+      isPlaying: false,
+      current: { position: 15 },
+    });
+
+    player.load(one, 200);
+    vi.advanceTimersByTime(5_000);
+    expect(queue.editorPlayback()).toMatchObject({
+      isPlaying: true,
+      current: { position: 20 },
+    });
+  });
+
+  it("keeps a restored Current Song's progress still until its Player loads it", async () => {
+    const { provider, player } = fakeProvider("fake");
+    const queue = songQueue(provider);
+    player.connect();
+    const one = songOf(await queue.request("fake:one@200"));
+    player.load(one, 200);
+    vi.advanceTimersByTime(10_000);
+
+    const restored = new SongQueue({
+      providers: [fakeProvider("fake").provider],
+      newId: () => "song-2",
+      initial: queue.snapshot(),
+    });
+    vi.advanceTimersByTime(30_000);
+
+    expect(restored.editorPlayback()).toMatchObject({
+      isPlaying: false,
+      isPaused: false,
+      current: { position: 10 },
+    });
+  });
+
+  it("publishes a stopped progress clock while a replacement Player Page loads", async () => {
+    const { provider, player } = fakeProvider("fake");
+    const published: boolean[] = [];
+    const queue = new SongQueue({
+      providers: [provider],
+      newId: () => "song-1",
+      onChange: () => published.push(queue.editorPlayback().isPlaying),
+    });
+    player.connect();
+    const one = songOf(await queue.request("fake:one@200"));
+    player.load(one, 200);
+    expect(published.at(-1)).toBe(true);
+
+    // A replacement page becomes ready without disconnecting the old Player.
+    player.connect();
+    expect(published.at(-1)).toBe(false);
+
+    player.load(one, 200);
+    expect(published.at(-1)).toBe(true);
   });
 });

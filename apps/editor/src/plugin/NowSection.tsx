@@ -37,7 +37,8 @@ function useTicker(running: boolean): number | null {
 export function NowSection({ playback }: { playback: PlaybackStatus }) {
   const editor = usePluginEditor();
   const current = playback.current;
-  const now = useTicker(Boolean(current && !playback.isPaused));
+  const paused = playback.isPaused;
+  const now = useTicker(playback.isPlaying);
 
   function send(message: EditorMessage) {
     void editor.sendToPlugin(message);
@@ -46,9 +47,10 @@ export function NowSection({ playback }: { playback: PlaybackStatus }) {
   // The editor runs on the sidecar's computer, so its clock turns the
   // position the status reported into the position now.
   const elapsed =
-    current && now !== null
-      ? current.position + (playback.isPaused ? 0 : (now - playback.now) / 1000)
-      : (current?.position ?? 0);
+    (current?.position ?? 0) +
+    (playback.isPlaying && now !== null
+      ? Math.max(0, now - playback.now) / 1000
+      : 0);
 
   return (
     <>
@@ -63,8 +65,10 @@ export function NowSection({ playback }: { playback: PlaybackStatus }) {
               {current.isFallback ? (
                 <StatusBadge tone="idle">Fallback Track</StatusBadge>
               ) : null}
-              {playback.isPaused ? (
+              {paused ? (
                 <StatusBadge tone="idle">Paused</StatusBadge>
+              ) : playback.playerState === "buffering" ? (
+                <StatusBadge tone="pending">Buffering</StatusBadge>
               ) : null}
             </div>
             <p className="text-muted-foreground text-xs/relaxed">
@@ -103,18 +107,28 @@ export function NowSection({ playback }: { playback: PlaybackStatus }) {
                 </p>
               </>
             )}
-            <div className="flex flex-wrap items-center gap-2">
-              <Button
-                type="button"
-                onClick={() =>
-                  send({
-                    event: "playback",
-                    mode: playback.isPaused ? "resume" : "pause",
-                  })
-                }
-              >
-                {playback.isPaused ? "Resume" : "Pause"}
-              </Button>
+          </>
+        ) : (
+          <p className="text-muted-foreground text-xs/relaxed">
+            {playback.isPaused
+              ? "Playback is paused. Resume to play the next Song."
+              : "Nothing is on air. The next Song goes on once a Player Page is open — add its address to OBS as a Browser Source."}
+          </p>
+        )}
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            type="button"
+            onClick={() =>
+              send({
+                event: "playback",
+                mode: paused ? "resume" : "pause",
+              })
+            }
+          >
+            {paused ? "Resume" : "Pause"}
+          </Button>
+          {current ? (
+            <>
               <Button
                 type="button"
                 variant="secondary"
@@ -133,14 +147,9 @@ export function NowSection({ playback }: { playback: PlaybackStatus }) {
                   Block
                 </Button>
               ) : null}
-            </div>
-          </>
-        ) : (
-          <p className="text-muted-foreground text-xs/relaxed">
-            Nothing is on air. The next Song goes on once a Player Page is open
-            — add its address below to OBS as a Browser Source.
-          </p>
-        )}
+            </>
+          ) : null}
+        </div>
         <NumberField
           label="Volume"
           min={0}

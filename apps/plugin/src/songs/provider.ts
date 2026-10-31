@@ -74,7 +74,10 @@ export type SongDroppedReason =
  * Why a Request did not become a Song. The canonical list lives in
  * `song-requests-protocol`: the Plugin Editor shows a Refusal's reason.
  */
-import type { RefusalReason } from "song-requests-protocol";
+import type {
+  RefusalReason,
+  PlayerPlaybackState,
+} from "song-requests-protocol";
 
 export type { RefusalReason };
 
@@ -89,6 +92,8 @@ export type ResolveOptions = {
 
 /** What a Player tells the Song Queue. */
 export interface PlayerEvents {
+  /** Actual playback and position, including the Player's own controls. */
+  playback(songId: string, state: PlayerPlaybackState, position: number): void;
   /** It can play now — a Player Page connected. */
   ready(): void;
   /** Its Player Page went away; playback waits at the last position. */
