@@ -6,7 +6,9 @@ import {
 } from "song-requests-protocol";
 
 import type {
+  FallbackTrack,
   Player,
+  Playable,
   Provider,
   RefusalReason,
   RequestMetadata,
@@ -51,9 +53,8 @@ export type GetSongTarget =
   | { kind: "position"; position: number }
   | { kind: "requesterNext"; requesterPlatform: string; requesterId: string };
 
-/** The Song on air — or waiting, paused, for its Player to come back. */
-type CurrentSong = {
-  song: Song;
+/** What is on air: the Current Song, or the Fallback Playlist's track. */
+type OnAir = {
   /**
    * Its duration is not known, so it plays muted until its Player tells it —
    * however long that takes: a Song buffering through a network drop is not
@@ -72,7 +73,11 @@ type CurrentSong = {
    * file for the Current Song of a restarted plugin (ADR-0002).
    */
   resumeAt?: number;
-};
+} & ({ kind: "song"; song: Song } | { kind: "fallback"; track: FallbackTrack });
+
+function trackOf(onAir: OnAir): Playable {
+  return onAir.kind === "song" ? onAir.song : onAir.track;
+}
 
 /** The Song Queue as the State file keeps it (ADR-0002). */
 export type SongQueueSnapshot = {
@@ -101,6 +106,7 @@ export type SongQueueSnapshot = {
 export class SongQueue {
   readonly #providers: Provider[];
   readonly #newId: () => string;
+  readonly #random: () => number;
   readonly #rules: {
     defaults: () => RuleDefaults;
     blocklist: () => BlocklistEntry[];
@@ -114,16 +120,24 @@ export class SongQueue {
   readonly #onChange?: () => void;
   readonly #onBlock?: (entry: BlocklistEntry) => boolean;
   readonly #waiting: Song[] = [];
-  #current?: CurrentSong;
+  #current?: OnAir;
   #history: HistoryEntry[];
   #requestsOpen?: boolean;
   #paused: boolean;
   #volume: number;
   #requestOrder = 0;
+  /**
+   * The learned Fallback Playlist: its tracks and the shuffled order they
+   * play in, `cursor` the next index. Lear anew when the playlist is set
+   * and when the plugin starts; after the last track the order is shuffled
+   * again. Nothing of it goes in the State file.
+   */
+  #fallback?: { tracks: FallbackTrack[]; order: number[]; cursor: number };
 
   constructor({
     providers,
     newId,
+    random,
     initial,
     rules,
     onStarted,
@@ -135,6 +149,8 @@ export class SongQueue {
     /** The first is the default one, which answers search words. */
     providers: Provider[];
     newId: () => string;
+    /** The shuffle's source of randomness — seeded in tests. */
+    random?: () => number;
     /** What the State file saved: the queue comes back as it was (ADR-0002). */
     initial?: SongQueueSnapshot;
     /**
@@ -156,6 +172,7 @@ export class SongQueue {
   }) {
     this.#providers = providers;
     this.#newId = newId;
+    this.#random = random ?? Math.random;
     this.#rules = rules ?? {
       defaults: () => FALLBACK_RULE_DEFAULTS,
       blocklist: () => [],
@@ -180,6 +197,7 @@ export class SongQueue {
     if (initial?.current) {
       const { song, atStartCheck, started, position } = initial.current;
       this.#current = {
+        kind: "song",
         song,
         atStartCheck,
         started,
@@ -195,7 +213,8 @@ export class SongQueue {
       provider.player.attach({
         ready: () => this.#resume(provider),
         disconnected: () => this.#disconnected(provider),
-        loaded: (songId, duration) => this.#loaded(songId, duration),
+        loaded: (songId, duration, title) =>
+          this.#loaded(songId, duration, title),
         ended: (songId) => this.#ended(songId),
         failed: (songId) => this.#failed(songId),
       });
@@ -210,12 +229,15 @@ export class SongQueue {
       isPaused: this.#paused,
       volume: this.#volume,
       waiting: [...this.#waiting],
-      current: current && {
-        song: current.song,
-        atStartCheck: current.atStartCheck,
-        started: current.started,
-        position: this.#positionOf(current),
-      },
+      current:
+        current?.kind === "song"
+          ? {
+              song: current.song,
+              atStartCheck: current.atStartCheck,
+              started: current.started,
+              position: this.#positionOf(current),
+            }
+          : undefined,
       history: [...this.#history],
     };
   }
@@ -225,27 +247,29 @@ export class SongQueue {
    * nothing of it plays — neither while it waits for one nor through a
    * restart — so only a playing Player moves it on.
    */
-  #positionOf(current: CurrentSong): number {
+  #positionOf(current: OnAir): number {
     const playing =
       !this.#paused &&
       current.since !== undefined &&
-      this.#playerOf(current.song)?.ready;
+      this.#playerOf(trackOf(current))?.ready;
     return (
       current.position + (playing ? (Date.now() - current.since!) / 1000 : 0)
     );
   }
 
   /**
-   * A Player that comes back — a Player Page opened again — gets the Current
-   * Song again if it is its own, or the next Song if nothing is on air.
+   * A Player that comes back — a Player Page opened again — gets what was
+   * on air again if it is its Provider's, or the next Song or Fallback
+   * Track if nothing is on air.
    */
   #resume(provider: Provider): void {
     provider.player.setVolume(this.#volume);
-    if (this.#current?.song.provider === provider.id) {
-      if (this.#current.started && this.#current.resumeAt === undefined) {
-        this.#current.resumeAt = this.#positionOf(this.#current);
+    const current = this.#current;
+    if (current && this.#playerOf(trackOf(current)) === provider.player) {
+      if (current.started && current.resumeAt === undefined) {
+        current.resumeAt = this.#positionOf(current);
       }
-      this.#start(this.#current, provider.player);
+      this.#start(current, provider.player);
       return;
     }
     this.#advance();
@@ -253,7 +277,7 @@ export class SongQueue {
 
   #disconnected(provider: Provider): void {
     const current = this.#current;
-    if (current?.song.provider !== provider.id) return;
+    if (!current || trackOf(current).provider !== provider.id) return;
     if (current.since !== undefined && !this.#paused) {
       current.position += (Date.now() - current.since) / 1000;
     }
@@ -263,68 +287,97 @@ export class SongQueue {
   }
 
   /**
-   * Its Player tells how long the Song on air is. At its Start Check that
+   * Its Player tells how long what is on air is. At its Start Check that
    * decides it: a live stream has no end and is dropped before anything of
-   * it is heard (ADR-0005); one outside the duration bounds it was accepted
-   * with is dropped as `too-long` or `too-short`, still unheard; any other
-   * is unmuted and goes on air.
+   * it is heard (ADR-0005); a Song outside the duration bounds it was
+   * accepted with is dropped as `too-long` or `too-short`, still unheard;
+   * any other is unmuted and goes on. A Fallback Track learned without the
+   * API Key takes its title and duration from here.
    */
-  #loaded(songId: string, duration: number | undefined): void {
+  #loaded(songId: string, duration: number | undefined, title?: string): void {
     const current = this.#current;
-    if (current?.song.id !== songId) return;
+    if (!current || trackOf(current).id !== songId) return;
 
     if (current.atStartCheck) {
       if (duration === undefined) {
-        this.#drop(current, true, "unavailable");
+        if (current.kind === "song") this.#drop(current, true, "unavailable");
+        else this.#skipFallback(current, true);
         return;
       }
-      const bounds = current.song.durationBounds;
-      if (bounds?.maxSeconds !== undefined && duration > bounds.maxSeconds) {
-        this.#drop(current, true, "too-long");
-        return;
-      }
-      if (bounds?.minSeconds !== undefined && duration < bounds.minSeconds) {
-        this.#drop(current, true, "too-short");
-        return;
+      if (current.kind === "song") {
+        const bounds = current.song.durationBounds;
+        if (bounds?.maxSeconds !== undefined && duration > bounds.maxSeconds) {
+          this.#drop(current, true, "too-long");
+          return;
+        }
+        if (bounds?.minSeconds !== undefined && duration < bounds.minSeconds) {
+          this.#drop(current, true, "too-short");
+          return;
+        }
+        current.song = { ...current.song, duration };
+      } else {
+        // A keyless Fallback Track: what the player reports is all there is.
+        current.track = {
+          ...current.track,
+          duration,
+          ...(title !== undefined ? { title } : {}),
+        };
       }
       current.atStartCheck = false;
-      current.song = { ...current.song, duration };
-      this.#playerOf(current.song)?.unmute(songId);
+      this.#playerOf(trackOf(current))?.unmute(songId);
     }
 
     current.loaded = true;
     if (!this.#paused) current.since ??= Date.now();
     if (!current.started && !this.#paused) {
       current.started = true;
-      this.#onStarted?.(current.song);
+      if (current.kind === "song") this.#onStarted?.(current.song);
     }
     this.#onChange?.();
   }
 
-  /** The Current Song played to its end, if it ever went on air. */
+  /** What is on air played to its end, if it ever went on air. */
   #ended(songId: string): void {
-    const current = this.#current;
-    if (current?.song.id !== songId) return;
-    if (!current.started) {
-      this.#drop(current, false);
-      return;
-    }
-    this.#finish(current, "finished");
+    const current = this.#endedOrFailed(songId);
+    if (current) this.#finish(current, "finished");
   }
 
-  /** A Player error drops a Song before it is heard, or fails it on air. */
+  /**
+   * A Player error drops a Song before it is heard, or fails it on air; a
+   * Fallback Track that fails at load — or breaks — is only skipped.
+   */
   #failed(songId: string): void {
+    const current = this.#endedOrFailed(songId);
+    if (current) this.#finish(current, "failed");
+  }
+
+  /**
+   * What `#ended` and `#failed` share: what is on air stopped by itself or
+   * broke. One that never started is dropped or skipped unheard; a Fallback
+   * Track leaves no trace — no Event, no History — and the next thing goes
+   * on. Returns the heard Song to record, if one was on air.
+   */
+  #endedOrFailed(songId: string): Extract<OnAir, { kind: "song" }> | undefined {
     const current = this.#current;
-    if (current?.song.id !== songId) return;
+    if (!current || trackOf(current).id !== songId) return undefined;
     if (!current.started) {
-      this.#drop(current, false);
-      return;
+      if (current.kind === "song") this.#drop(current, false);
+      else this.#skipFallback(current, false);
+      return undefined;
     }
-    this.#finish(current, "failed");
+    if (current.kind === "fallback") {
+      this.#skipFallback(current, false);
+      return undefined;
+    }
+    return current;
   }
 
   /** Every heard Song leaves the air through the same History and Event ordering. */
-  #finish(current: CurrentSong, how: HistoryEntry["how"], stop = false): void {
+  #finish(
+    current: Extract<OnAir, { kind: "song" }>,
+    how: HistoryEntry["how"],
+    stop = false,
+  ): void {
     this.#current = undefined;
     if (stop) this.#playerOf(current.song)?.stop();
     this.#recordHowItLeft(current.song, how);
@@ -344,7 +397,7 @@ export class SongQueue {
 
   /** The Song goes without being heard; a live Start Check still needs stopping. */
   #drop(
-    current: CurrentSong,
+    current: Extract<OnAir, { kind: "song" }>,
     stop: boolean,
     why: SongDroppedReason = "unavailable",
   ): void {
@@ -355,16 +408,50 @@ export class SongQueue {
     this.#advance();
   }
 
-  /** Puts the next Song on air, if its Player can play it now. */
+  /**
+   * A Fallback Track leaves nothing behind — no Event, no History — and
+   * the next thing goes on; one still loading needs stopping first.
+   */
+  #skipFallback(
+    current: Extract<OnAir, { kind: "fallback" }>,
+    stop: boolean,
+  ): void {
+    this.#current = undefined;
+    if (stop) this.#playerOf(current.track)?.stop();
+    this.#onChange?.();
+    this.#advance();
+  }
+
+  /**
+   * Puts the next Song on air if there is one; otherwise the next Fallback
+   * Track, while the Song Queue is empty and a Fallback Playlist is learned.
+   */
   #advance(): void {
     if (this.#current || this.#paused) return;
     const next = this.#waiting[0];
-    const player = next && this.#playerOf(next);
-    if (!player?.ready) return;
-    this.#waiting.shift();
+    if (next) {
+      const player = this.#playerOf(next);
+      if (!player?.ready) return;
+      this.#waiting.shift();
+      this.#current = {
+        kind: "song",
+        song: next,
+        atStartCheck: next.duration === undefined,
+        started: false,
+        position: 0,
+      };
+      this.#onChange?.();
+      this.#start(this.#current, player);
+      return;
+    }
+    const track = this.#peekFallback();
+    const player = track && this.#playerOf(track);
+    if (!track || !player?.ready) return;
+    this.#takeFallback();
     this.#current = {
-      song: next,
-      atStartCheck: next.duration === undefined,
+      kind: "fallback",
+      track,
+      atStartCheck: track.duration === undefined,
       started: false,
       position: 0,
     };
@@ -373,15 +460,15 @@ export class SongQueue {
   }
 
   /**
-   * Plays the Song on air — muted at its Start Check, from `resumeAt` when
+   * Plays what is on air — muted at its Start Check, from `resumeAt` when
    * the State file brings a heard Song back (ADR-0002), else from its start.
    */
-  #start(current: CurrentSong, player: Player): void {
+  #start(current: OnAir, player: Player): void {
     current.loaded = false;
     current.since = undefined;
     if (current.resumeAt !== undefined) {
       current.position = current.resumeAt;
-      player.play(current.song, {
+      player.play(trackOf(current), {
         muted: current.atStartCheck,
         startAt: current.resumeAt,
         paused: this.#paused,
@@ -391,15 +478,15 @@ export class SongQueue {
       return;
     }
     current.position = 0;
-    player.play(current.song, {
+    player.play(trackOf(current), {
       muted: current.atStartCheck,
       paused: this.#paused,
       volume: this.#volume,
     });
   }
 
-  #playerOf(song: Song) {
-    return this.#providers.find((p) => p.id === song.provider)?.player;
+  #playerOf(playable: Playable) {
+    return this.#providers.find((p) => p.id === playable.provider)?.player;
   }
 
   blockSong(
@@ -408,8 +495,11 @@ export class SongQueue {
   ): Song | undefined {
     const song =
       target.kind === "current"
-        ? this.#current?.song
-        : this.#current?.song.id === target.songId
+        ? this.#current?.kind === "song"
+          ? this.#current.song
+          : undefined
+        : this.#current?.kind === "song" &&
+            this.#current.song.id === target.songId
           ? this.#current.song
           : this.#waiting.find((song) => song.id === target.songId);
     if (!song || !this.#onBlock) return undefined;
@@ -431,7 +521,10 @@ export class SongQueue {
     );
     this.#dropWaiting(waiting, "blocked");
     const current = this.#current;
-    if (current && matchesBlocklistEntry(current.song, entry)) {
+    if (
+      current?.kind === "song" &&
+      matchesBlocklistEntry(current.song, entry)
+    ) {
       if (current.started) this.#finish(current, "skipped", true);
       else this.#drop(current, true, "blocked");
     } else this.#advance();
@@ -460,7 +553,9 @@ export class SongQueue {
     target: GetSongTarget,
   ): { song: Song; position: number; eta: number | undefined } | undefined {
     if (target.kind === "current") {
-      return this.#current && { song: this.#current.song, position: 0, eta: 0 };
+      return this.#current?.kind === "song"
+        ? { song: this.#current.song, position: 0, eta: 0 }
+        : undefined;
     }
     const song =
       target.kind === "position"
@@ -533,10 +628,14 @@ export class SongQueue {
     return matches;
   }
 
-  /** Ends the Current Song; one still at its Start Check was never heard. */
-  skip(): Song | undefined {
+  /** Ends what is on air; a Fallback Track is skipped, with no Song Event. */
+  skip(): Playable | undefined {
     const current = this.#current;
     if (!current) return undefined;
+    if (current.kind === "fallback") {
+      this.#skipFallback(current, true);
+      return current.track;
+    }
     if (!current.started) {
       this.#drop(current, true, "removed");
     } else {
@@ -563,7 +662,7 @@ export class SongQueue {
     }
     this.#paused = paused;
     if (current) {
-      const player = this.#playerOf(current.song);
+      const player = this.#playerOf(trackOf(current));
       if (paused) player?.pause();
       else {
         player?.resume();
@@ -571,7 +670,7 @@ export class SongQueue {
           current.since = Date.now();
           if (!current.started) {
             current.started = true;
-            this.#onStarted?.(current.song);
+            if (current.kind === "song") this.#onStarted?.(current.song);
           }
         }
       }
@@ -585,7 +684,53 @@ export class SongQueue {
     return this.#volume;
   }
 
-  /** State read by Standalone Query Sources; waiting durations exclude the Current Song. */
+  /**
+   * Learns the Fallback Playlist's tracks — `undefined` for none set, `[]`
+   * for one without a playable track, in which case the player stays
+   * silent. The order starts shuffled; after its last track it is shuffled
+   * again. What is on air plays on; a Song on air is not interrupted.
+   */
+  setFallbackTracks(tracks: Track[] | undefined): void {
+    if (!tracks?.length) {
+      this.#fallback = undefined;
+      return;
+    }
+    this.#fallback = {
+      tracks: tracks.map((track) => ({ ...track, id: this.#newId() })),
+      order: this.#shuffled(tracks.map((_, index) => index)),
+      cursor: 0,
+    };
+    this.#advance();
+  }
+
+  #shuffled<T>(items: T[]): T[] {
+    for (let at = items.length - 1; at > 0; at--) {
+      const pick = Math.floor(this.#random() * (at + 1));
+      [items[at], items[pick]] = [items[pick], items[at]];
+    }
+    return items;
+  }
+
+  /** The next Fallback Track to play, without taking it — its Player may not be ready. */
+  #peekFallback(): FallbackTrack | undefined {
+    const fallback = this.#fallback;
+    return fallback && fallback.order[fallback.cursor] !== undefined
+      ? fallback.tracks[fallback.order[fallback.cursor]]
+      : undefined;
+  }
+
+  /** Takes the peeked track; past the last one the playlist is shuffled again. */
+  #takeFallback(): void {
+    const fallback = this.#fallback;
+    if (!fallback) return;
+    fallback.cursor += 1;
+    if (fallback.cursor >= fallback.order.length) {
+      fallback.order = this.#shuffled(fallback.order.map((_, index) => index));
+      fallback.cursor = 0;
+    }
+  }
+
+  /** State read by Standalone Query Sources; waiting durations exclude what is on air. */
   status() {
     const current = this.#current;
     return {
@@ -593,12 +738,16 @@ export class SongQueue {
         current?.started &&
         current.loaded &&
         !this.#paused &&
-        this.#playerOf(current.song)?.ready,
+        this.#playerOf(trackOf(current))?.ready,
       ),
       isPaused: this.#paused,
-      playerConnected: this.#providers.some(({ player }) => player.ready),
-      currentTitle: current?.song.title ?? "",
-      currentRequester: current?.song.requesterName ?? "",
+      playerConnected: this.#providers.some(
+        ({ player }) => player.connected ?? player.ready,
+      ),
+      currentTitle: (current && trackOf(current).title) || "",
+      currentRequester:
+        current?.kind === "song" ? current.song.requesterName : "",
+      isFallback: current?.kind === "fallback",
       queueLength: this.#waiting.length,
       queueDuration: this.#waiting.reduce(
         (seconds, song) => seconds + (song.duration ?? 0),
@@ -622,7 +771,7 @@ export class SongQueue {
     let seconds = 0;
 
     if (this.#current) {
-      const duration = this.#current.song.duration;
+      const duration = trackOf(this.#current).duration;
       if (duration === undefined) return undefined;
       seconds += Math.max(0, duration - this.#positionOf(this.#current));
     }
@@ -667,7 +816,8 @@ export class SongQueue {
           requesterId: metadata.requesterId,
         },
         waiting: this.#waiting,
-        current: this.#current?.song,
+        current:
+          this.#current?.kind === "song" ? this.#current.song : undefined,
         history: this.#history,
         blocklist: this.#rules.blocklist(),
       });

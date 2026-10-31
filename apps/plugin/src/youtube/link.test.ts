@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { videoIdOf } from "./link";
+import { playlistIdOf, videoIdOf } from "./link";
 
 const ID = "dQw4w9WgXcQ";
+const PLAYLIST = "PLx0sYbCqOb8TBPRdmBHs5Iftvv9TPboYG";
 
 describe("a YouTube link in a Request", () => {
   it.each([
@@ -31,5 +32,30 @@ describe("a YouTube link in a Request", () => {
     "",
   ])("finds no video in %j", (request) => {
     expect(videoIdOf(request)).toBeUndefined();
+  });
+});
+
+describe("a YouTube playlist link in the settings", () => {
+  it.each([
+    `https://www.youtube.com/playlist?list=${PLAYLIST}`,
+    `https://music.youtube.com/playlist?list=${PLAYLIST}`,
+    `https://youtube.com/playlist?list=${PLAYLIST}`,
+    `youtube.com/playlist?list=${PLAYLIST}`,
+    `https://www.youtube.com/watch?v=${ID}&list=${PLAYLIST}`,
+    `  https://www.youtube.com/playlist?list=${PLAYLIST}  `,
+  ])("finds the playlist in %s", (link) => {
+    expect(playlistIdOf(link)).toBe(PLAYLIST);
+  });
+
+  it.each([
+    `https://www.youtube.com/watch?v=${ID}`,
+    `https://youtu.be/playlist?list=${PLAYLIST}`,
+    "https://example.com/playlist?list=PLx0sYbCqOb8TBPRdmBHs5Iftvv9TPboYG",
+    "https://www.youtube.com/playlist?list=tooshort",
+    "https://www.youtube.com/playlist",
+    `watch ${PLAYLIST}`,
+    "",
+  ])("finds no playlist in %j", (link) => {
+    expect(playlistIdOf(link)).toBeUndefined();
   });
 });

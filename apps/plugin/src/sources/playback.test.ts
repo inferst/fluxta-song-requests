@@ -100,6 +100,7 @@ describe("playback Query Sources", () => {
       playerConnected: false,
       currentTitle: "",
       currentRequester: "",
+      isFallback: false,
       queueLength: 0,
       queueDuration: 0,
       volume: 100,
@@ -149,6 +150,55 @@ describe("playback Query Sources", () => {
       currentTitle: "",
       currentRequester: "",
       queueLength: 2,
+    });
+  });
+
+  it("reads the Fallback Track on air, and falls silent when the playlist is gone", async () => {
+    const { provider, player } = fakeProvider();
+    let id = 0;
+    const queue = new SongQueue({
+      providers: [provider],
+      newId: () => `${++id}`,
+    });
+    const sources = createPlaybackSources(queue);
+    const read = async () =>
+      Object.fromEntries(
+        await Promise.all(
+          sources.map(async (source) => [
+            source.key,
+            await source.resolve({ itemId: 0, args: {} }),
+          ]),
+        ),
+      );
+    player.connect();
+    queue.setFallbackTracks([
+      {
+        provider: "fake",
+        trackId: "fallback-1",
+        title: "Fallback One",
+        channel: "Channel",
+        channelUrl: "fake://channel",
+        url: "fake://fallback-1",
+        duration: 100,
+      },
+    ]);
+    player.load();
+    expect(await read()).toMatchObject({
+      isPlaying: true,
+      isFallback: true,
+      currentTitle: "Fallback One",
+      currentRequester: "",
+    });
+    queue.setFallbackTracks(undefined);
+    expect(await read()).toMatchObject({
+      isFallback: true,
+      currentTitle: "Fallback One",
+    });
+    queue.skip();
+    expect(await read()).toMatchObject({
+      isPlaying: false,
+      isFallback: false,
+      currentTitle: "",
     });
   });
 });

@@ -65,6 +65,25 @@ describe("the editors' messages", () => {
     ).toBe(false);
   });
 
+  it("accepts an editor setting the Fallback Playlist, or removing it", () => {
+    expect(
+      isEditorMessage({
+        event: "set-fallback-playlist",
+        playlist: "https://www.youtube.com/playlist?list=PLx0sYbCqOb8",
+      }),
+    ).toBe(true);
+    expect(
+      isEditorMessage({ event: "set-fallback-playlist", playlist: "" }),
+    ).toBe(true);
+    expect(isEditorMessage({ event: "set-fallback-playlist" })).toBe(false);
+    expect(
+      isEditorMessage({
+        event: "set-fallback-playlist",
+        playlist: "x".repeat(1000),
+      }),
+    ).toBe(false);
+  });
+
   it("accepts a channel's Provider id when removing its Blocklist entry", () => {
     const entry = {
       kind: "channel",
@@ -97,6 +116,7 @@ describe("the editors' messages", () => {
         { kind: "track", provider: "youtube", trackId: "x" },
         { kind: "channel", channelUrl: "https://www.youtube.com/@x" },
       ],
+      fallbackPlaylist: "https://www.youtube.com/playlist?list=PLx0sYbCqOb8",
     };
 
     expect(isPluginMessage({ event: "status", status })).toBe(true);

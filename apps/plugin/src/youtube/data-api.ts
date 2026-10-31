@@ -51,6 +51,10 @@ export type VideosAnswer =
 export type SearchAnswer =
   { kind: "ids"; ids: string[] } | Exclude<VideosAnswer, { kind: "videos" }>;
 
+/** `playlistItems.list` answers the ids it holds, paged 50 to a unit. */
+export type PlaylistItemsAnswer =
+  { kind: "ids"; ids: string[] } | Exclude<VideosAnswer, { kind: "videos" }>;
+
 /**
  * Any video answers a check of the key: one gone since still comes back as
  * an empty list, which says the key works as well as a found one would.
@@ -139,6 +143,36 @@ export class DataApi {
     return this.#list("snippet,contentDetails,status", ids);
   }
 
+  /**
+   * `playlistItems.list` for the playlist — one unit per 50 entries, in the
+   * daily-units bucket like `videos.list`, paged through `nextPageToken`.
+   * Entries YouTube gives no video id for (a deleted or private video) are
+   * left out; what else cannot play is left out by `videos()`.
+   */
+  async playlistItems(playlistId: string): Promise<PlaylistItemsAnswer> {
+    const ids: string[] = [];
+    let pageToken: string | undefined;
+    do {
+      const url = new URL(`${DATA_API}/playlistItems`);
+      url.searchParams.set("part", "contentDetails");
+      url.searchParams.set("playlistId", playlistId);
+      url.searchParams.set("maxResults", "50");
+      if (pageToken) url.searchParams.set("pageToken", pageToken);
+      const answer = await this.#request<PlaylistItem>(url, "videos");
+      if (answer.kind !== "items") return answer;
+      ids.push(
+        ...answer.items.flatMap((item) =>
+          typeof item?.contentDetails?.videoId === "string" &&
+          item.contentDetails.videoId
+            ? [item.contentDetails.videoId]
+            : [],
+        ),
+      );
+      pageToken = answer.nextPageToken;
+    } while (pageToken);
+    return { kind: "ids", ids };
+  }
+
   async search(
     words: string,
     region: string,
@@ -186,7 +220,13 @@ export class DataApi {
     url: URL,
     bucket: "search" | "videos",
   ): Promise<
-    { kind: "items"; items: T[] } | Exclude<VideosAnswer, { kind: "videos" }>
+    | {
+        kind: "items";
+        items: T[];
+        /** `playlistItems.list` pages through it; absent on its last page. */
+        nextPageToken?: string;
+      }
+    | Exclude<VideosAnswer, { kind: "videos" }>
   > {
     const reason = this.unusable();
     if (reason) return { kind: "unusable", reason };
@@ -231,7 +271,13 @@ export class DataApi {
     }
 
     if (current) this.#hear("accepted");
-    return { kind: "items", items: body.items };
+    return {
+      kind: "items",
+      items: body.items,
+      ...(typeof body.nextPageToken === "string"
+        ? { nextPageToken: body.nextPageToken }
+        : {}),
+    };
   }
 
   #hear(verdict: "accepted" | "refused"): void {
@@ -263,8 +309,11 @@ export class DataApi {
 
 type SearchItem = { id?: { videoId?: string } };
 
+type PlaylistItem = { contentDetails?: { videoId?: string } };
+
 type ApiBody<T = unknown> = {
   items?: T[];
+  nextPageToken?: string;
   error?: {
     message?: string;
     errors?: { reason?: string }[];

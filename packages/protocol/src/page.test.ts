@@ -46,6 +46,22 @@ describe("the Player Page's messages", () => {
     expect(isPageMessage({ event: "error", songId: "s1", code: 150 })).toBe(
       true,
     );
+    expect(
+      isPageMessage({
+        event: "loaded",
+        songId: "s1",
+        duration: 213,
+        live: false,
+        title: "Never Gonna Give You Up",
+      }),
+    ).toBe(true);
+    expect(
+      isPageMessage({
+        event: "cued",
+        requestId: "1",
+        ids: ["dQw4w9WgXcQ", "video"],
+      }),
+    ).toBe(true);
   });
 
   it("refuses anything else a page might send", () => {
@@ -73,6 +89,12 @@ describe("the Player Page's messages", () => {
     ).toBe(true);
     expect(isSidecarMessage({ event: "unmute", songId: "s1" })).toBe(true);
     expect(isSidecarMessage({ event: "stop" })).toBe(true);
+    expect(
+      isSidecarMessage({ event: "cue", requestId: "1", playlistId: "PL…" }),
+    ).toBe(true);
+    expect(isSidecarMessage({ event: "cue", playlistId: "PL…" })).toBe(false);
+    expect(isPageMessage({ event: "cued", ids: [] })).toBe(false);
+    expect(isSidecarMessage({ event: "cue" })).toBe(false);
 
     expect(
       isSidecarMessage({

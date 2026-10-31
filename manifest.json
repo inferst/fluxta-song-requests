@@ -459,6 +459,13 @@
       "context": "standalone"
     },
     {
+      "key": "isFallback",
+      "name": "Is Fallback",
+      "type": "boolean",
+      "resolve": "query",
+      "context": "standalone"
+    },
+    {
       "key": "queueLength",
       "name": "Queue Length",
       "type": "number",

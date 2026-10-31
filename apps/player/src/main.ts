@@ -15,6 +15,7 @@ import {
 
 const ENDED = 0;
 const PLAYING = 1;
+const CUED = 5;
 const RECONNECT_MS = { first: 1_000, max: 10_000 };
 /** How soon to look again for a duration the player does not know yet. */
 const DURATION_RETRY_MS = 250;
@@ -50,6 +51,8 @@ let current:
     }
   | undefined;
 let retry: ReturnType<typeof setTimeout> | undefined;
+/** The playlist a `cue` asked to list, waiting for the player to load it. */
+let listing: { playlistId: string; requestId: string } | undefined;
 
 function send(message: PageMessage): void {
   if (socket?.readyState === WebSocket.OPEN) {
@@ -107,7 +110,13 @@ function report(): void {
   }
 
   current.reported = true;
-  send({ event: "loaded", songId: current.songId, duration, live });
+  send({
+    event: "loaded",
+    songId: current.songId,
+    duration,
+    live,
+    title: data.title ?? "",
+  });
 }
 
 function load(
@@ -117,6 +126,7 @@ function load(
   startAt: number,
 ): void {
   current = { songId, videoId, muted, startAt, reported: false };
+  listing = undefined;
   clearTimeout(retry);
   if (!apiReady) return;
 
@@ -127,16 +137,38 @@ function load(
 
   // No `origin` parameter: what YouTube checks is the page's host, which is
   // `localhost` — never an IP address, which it refuses (spike #3).
-  player = new YT.Player("player", {
+  player = createPlayer();
+}
+
+/** The IFrame Player, once YouTube's API has loaded. */
+function createPlayer(): YT.Player {
+  return new YT.Player("player", {
     width: "100%",
     height: "100%",
     playerVars: { playsinline: 1 },
     events: {
       onReady: (event) => {
         playerReady = true;
-        start(event.target);
+        if (listing !== undefined) {
+          event.target.cuePlaylist({ list: listing.playlistId });
+        } else {
+          start(event.target);
+        }
       },
       onStateChange: (event) => {
+        if (listing !== undefined && event.data === CUED) {
+          // A `cue` wants the playlist listed, never played (ADR-0003):
+          // what `getPlaylist()` gives is what the player loaded of it —
+          // for a long playlist, maybe not every entry.
+          const ids = event.target.getPlaylist();
+          const { requestId } = listing;
+          listing = undefined;
+          send({
+            event: "cued",
+            requestId,
+            ids: Array.isArray(ids) ? ids : [],
+          });
+        }
         if (event.data === PLAYING) {
           if (paused) event.target.pauseVideo();
           else report();
@@ -147,6 +179,12 @@ function load(
       },
       onError: (event) => {
         clearTimeout(retry);
+        if (listing !== undefined) {
+          const { requestId } = listing;
+          listing = undefined;
+          send({ event: "cued", requestId, ids: [] });
+          return;
+        }
         if (current) {
           send({ event: "error", songId: current.songId, code: event.data });
         }
@@ -171,6 +209,7 @@ function unmute(songId: string): void {
 
 function stop(): void {
   current = undefined;
+  listing = undefined;
   clearTimeout(retry);
   if (playerReady) player?.stopVideo();
 }
@@ -191,7 +230,7 @@ function obey(message: SidecarMessage): void {
     case "pause":
       paused = true;
       clearTimeout(retry);
-      if (playerReady) player?.pauseVideo();
+      if (playerReady && current) player?.pauseVideo();
       return;
     case "resume":
       paused = false;
@@ -200,6 +239,22 @@ function obey(message: SidecarMessage): void {
     case "volume":
       volume = message.volume;
       if (playerReady) player?.setVolume(volume);
+      return;
+    case "cue":
+      // Only ever cued, to learn the Fallback Playlist's entries — never
+      // played: the sidecar hands tracks one at a time (ADR-0003).
+      current = undefined;
+      clearTimeout(retry);
+      listing = {
+        playlistId: message.playlistId,
+        requestId: message.requestId,
+      };
+      if (!apiReady) return;
+      if (!player) {
+        player = createPlayer();
+        return;
+      }
+      if (playerReady) player.cuePlaylist({ list: message.playlistId });
       return;
   }
 }
@@ -210,6 +265,7 @@ function replaced(): void {
   player = undefined;
   playerReady = false;
   current = undefined;
+  listing = undefined;
   clearTimeout(retry);
   note.textContent = "The player is open elsewhere.";
   note.style.display = "grid";
@@ -256,6 +312,8 @@ window.onYouTubeIframeAPIReady = () => {
   apiReady = true;
   if (current) {
     load(current.songId, current.videoId, current.muted, current.startAt);
+  } else if (listing !== undefined && !player) {
+    player = createPlayer();
   }
 };
 

@@ -1,6 +1,9 @@
 /** YouTube's video ids: 11 characters of URL-safe base64. */
 const VIDEO_ID = /^[A-Za-z0-9_-]{11}$/;
 
+/** YouTube's playlist ids: two-letter kind and URL-safe base64. */
+const PLAYLIST_ID = /^[A-Za-z]{2}[A-Za-z0-9_-]{8,}$/;
+
 const WATCH_HOSTS = new Set([
   "youtube.com",
   "www.youtube.com",
@@ -51,3 +54,31 @@ export function videoIdOf(request: string): string | undefined {
 
 /** The address of a video a viewer can open. */
 export const watchUrl = (id: string) => `https://www.youtube.com/watch?v=${id}`;
+
+/**
+ * The playlist a link points to, or `undefined` when the link is not one
+ * YouTube playlist — a video, another site, not a link at all. Like a
+ * Request's link, the whole setting must be the link.
+ */
+export function playlistIdOf(link: string): string | undefined {
+  const text = link.trim();
+
+  if (!text || /\s/.test(text)) {
+    return undefined;
+  }
+
+  let url: URL;
+
+  try {
+    url = new URL(/^https?:\/\//i.test(text) ? text : `https://${text}`);
+  } catch {
+    return undefined;
+  }
+
+  if (!WATCH_HOSTS.has(url.hostname.toLowerCase())) {
+    return undefined;
+  }
+
+  const id = url.searchParams.get("list");
+  return id && PLAYLIST_ID.test(id) ? id : undefined;
+}

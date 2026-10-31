@@ -128,7 +128,11 @@ _Avoid_: log, played list.
 A playlist of the streamer's whose playable tracks the plugin plays shuffled,
 one at a time, while the Song Queue is empty. Its tracks are not Songs:
 Playability applies to them, but no Rules, no Events, no History. A Song
-waits for the Fallback Track on air to end.
+waits for the Fallback Track on air to end. The plugin learns it with the
+API Key — `playlistItems.list` for the ids, `videos.list` for titles,
+durations and Playability, a unit per 50 tracks each — and without the key by
+cuing the playlist in the Player Page's player, which lists its video ids;
+after the last track it reshuffles what it learned.
 _Avoid_: backup playlist, autoplay (YouTube's word for something else).
 
 **Fallback Track**:

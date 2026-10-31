@@ -40,19 +40,33 @@ const SidecarMessageSchema = z.discriminatedUnion("event", [
     event: z.literal("volume"),
     volume: z.number().int().min(0).max(100),
   }),
+  /**
+   * Cues a playlist — never to play it (the sidecar hands tracks one at a
+   * time, ADR-0003), only so the page lists it back: the keyless way of
+   * learning the Fallback Playlist's tracks. The request id keeps a late
+   * reply to a timed-out cue from answering a later one.
+   */
+  z.object({
+    event: z.literal("cue"),
+    requestId: z.string(),
+    playlistId: z.string(),
+  }),
 ]);
 
 const PageMessageSchema = z.discriminatedUnion("event", [
   /**
    * The video plays, and the player knows it: `duration` is the player's
    * own, in seconds, and `live` whether the video is a live stream — whose
-   * "duration" is only how long it has been on.
+   * "duration" is only how long it has been on. `title` is
+   * `getVideoData()`'s — how a Fallback Track learned without the API Key
+   * gets its title.
    */
   z.object({
     event: z.literal("loaded"),
     songId: z.string(),
     duration: z.number(),
     live: z.boolean(),
+    title: z.string().optional(),
   }),
   z.object({ event: z.literal("ended"), songId: z.string() }),
   /** `code` is the IFrame Player's error code — 150 for any refusal at load. */
@@ -60,6 +74,16 @@ const PageMessageSchema = z.discriminatedUnion("event", [
     event: z.literal("error"),
     songId: z.string(),
     code: z.number(),
+  }),
+  /**
+   * The playlist a `cue` cued, as the player lists it. YouTube's player
+   * loads a long playlist's entries in chunks, so this may not list them
+   * all — the sidecar takes what it lists (ADR-0003).
+   */
+  z.object({
+    event: z.literal("cued"),
+    requestId: z.string(),
+    ids: z.array(z.string()),
   }),
 ]);
 

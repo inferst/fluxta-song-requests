@@ -15,11 +15,22 @@ own queue cannot be edited. The Fallback Playlist goes the same way: the
 plugin learns the playlist's tracks — through the Data API with the API Key,
 at a unit per 50 tracks and with every title, duration and Playability; from
 the player, which can list a playlist it is given, without it — shuffles them
-and hands the Player one track at a time, skipping any it cannot play. Handed
-the playlist to play itself, YouTube's player kept its order through a
-shuffle and stuck on the first entry it could not play (spike #3). The tests carry a fake second Provider, so
+and hands the Player one track at a time, skipping any it cannot play; after
+the last track the order is shuffled again. A long playlist settles this: the
+player loads its entries in chunks and `getPlaylist()` lists only what it has
+loaded, so a keyless learn takes the ids it returns — the first entries — as
+the learned list, and the reshuffle replays that list rather than re-learning
+it. Handed the playlist to play itself, YouTube's player kept its order
+through a shuffle and stuck on the first entry it could not play (spike #3). The tests carry a fake second Provider, so
 that the Song Queue, the Rules and the Events are shown not to depend on
 YouTube.
+
+Keyless learning shares the Player Page's IFrame with playback, so it waits
+for the track on air to leave before cuing the playlist. While it lists the
+entries, the Player stays connected but is not ready for another track; it
+becomes ready after the learned tracks have been installed. A page replaced
+or disconnected mid-read answers no entries, and an unanswered cue has a
+bounded wait, so neither can strand later readings or the Song Queue.
 
 ## Spotify, when it comes
 
